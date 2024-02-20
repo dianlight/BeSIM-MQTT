@@ -10,4 +10,3 @@ argparse
 homeassistant_api
 https://github.com/dianlight/ha-mqtt-discoverable/archive/refs/heads/main.zip
 dnspython
-httplib2

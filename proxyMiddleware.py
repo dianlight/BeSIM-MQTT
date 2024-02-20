@@ -6,6 +6,7 @@ import logging
 import dns.resolver
 from flask import Flask, Request
 import http.client
+import re
 
 BEHAVIOUR = Enum('BEHAVIOUR', [
     'REMOTE_FIRST',  # If remote and local differs return remote
@@ -30,9 +31,7 @@ class ProxyMiddleware(object):
 
     def __init__(self, app: Flask, upstream: str):
         self._app = app.wsgi_app
-        self.adapter = app.create_url_adapter(None)
-        if self.adapter is None:
-            raise Exception('configure a SERVER_NAME for the app')
+        self.app = app
         self.upstream_resolver.nameservers = [upstream]
         logging.info(
             f"Upstream DNS Check: google.com = {pformat(next(self.upstream_resolver.query('google.com', "A").__iter__()).to_text())}"
@@ -41,7 +40,9 @@ class ProxyMiddleware(object):
         #    logging.info(answer.to_text())
 
     def __call__(self, env, resp):  # sourcery skip: identity-comprehension
-        if env.get("HTTP_HOST") not in self.http_connection or self.http_connection[env.get("HTTP_HOST")] is None:
+        if env.get("HTTP_HOST") in ['127.0.0.1', 'localhost'] or re.match(r"\w+\-besim\w{0,1}", env.get("HTTP_HOST"), re.IGNORECASE) is not None:
+            return self._app(env, lambda status, headers, *args: resp(status, headers, *args))
+        elif env.get("HTTP_HOST") not in self.http_connection or self.http_connection[env.get("HTTP_HOST")] is None:
             ip = next(self.upstream_resolver.query(env.get("HTTP_HOST"), "A").__iter__()).to_text()
             logging.info(f"Upstream Connection for {env.get("HTTP_HOST")} is {pformat(ip)}:{env.get("SERVER_PORT")}")
             self.http_connection[env.get("HTTP_HOST")] = http.client.HTTPConnection(ip, int(env.get("SERVER_PORT")))
@@ -55,7 +56,8 @@ class ProxyMiddleware(object):
 
         def check_path_exists(path: str, method: str):
             try:
-                self.adapter.match(path, method)
+                adapter = self.app.create_url_adapter(request=req)
+                adapter.match(path, method)
             except Exception:
                 return False
             return True

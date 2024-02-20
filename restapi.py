@@ -1,5 +1,5 @@
 from flask import Flask, request
-from flask_restful import reqparse, abort, Api, Resource
+from flask_restful import Api, Resource
 from flask_cors import CORS
 import json
 import time
@@ -9,12 +9,13 @@ import requests
 from cachetools import cached, TTLCache
 from threading import RLock
 
-from webargs import fields, validate
+from webargs import fields
 from webargs.flaskparser import use_kwargs, use_args
 
-from udpserver import MsgId
+from udpserver import MsgId, UdpServer
 from status import getStatus, getDeviceStatus, getRoomStatus
 from database import Database
+
 
 logger = logging.getLogger(__name__)
 
@@ -27,14 +28,13 @@ class SetEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, o)
 
 
-app = Flask(
-    __name__, subdomain_matching=True, host_matching=True, static_host="localhost:80"
-)
+app = Flask(__name__, subdomain_matching=True, host_matching=False, static_host=None)
+# dashboard.bind(app)
 CORS(app)
 api = Api(app)
 
 
-def getUdpServer():
+def getUdpServer() -> UdpServer:
     return app.config["udpServer"]
 
 
@@ -118,7 +118,7 @@ def getWebTemperature():
 @app.route(
     "/BeSMART_test_on_cloudwarm/v1/api/gateway/boilers/records",
     methods=["POST"],
-    host="api.besmart-home.com",
+    host="www.cloudwarm.com",
 )
 def postBoilerRecords():
     logger.debug(f"{request.args}")
