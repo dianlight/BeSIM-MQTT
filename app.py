@@ -39,7 +39,7 @@ if __name__ == "__main__":
         sys.exit(1)  # error should already have been logged
     database.purge(365 * 2)  # @todo currently only purging old records at startup
 
-    udpServer = UdpServer(("", 6199))
+    # udpServer = UdpServer(("", 6199))
     if args["proxy_mode"] is not None:
         udpServer = ProxyUdpServer(("", 6199), args["proxy_mode"])
     else:
@@ -56,6 +56,6 @@ if __name__ == "__main__":
     if args["proxy_mode"] is not None:
         app.wsgi_app = ProxyMiddleware(app, args["proxy_mode"])
 
-    app.logger.setLevel(logging.WARN)
+    # app.logger.setLevel(logging.WARN)
     logging.getLogger("werkzeug").setLevel(logging.WARN)
     app.run(debug=True, host=host, port=int(port))
