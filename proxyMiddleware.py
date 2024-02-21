@@ -11,16 +11,16 @@ import re
 BEHAVIOUR = Enum('BEHAVIOUR', [
     'REMOTE_FIRST',  # If remote and local differs return remote
     'LOCAL_FIRST',  # If remote and local differs return local
-    'REMOTE_IF_MISSING',  # If remote don't exist return local otherwise return local
+    'REMOTE_IF_MISSING',  # If local don't exist return remote otherwise return act as LOCAL_FIRST
     'ONLY_REMOTE',  # Ignore local
     'ONLY_LOCAL'  # Ingore remote
 ])
 
 """ Standard Behaviour is REMOTE_IF_MISSING """
 PROXY_URL_BEHAVIOUR = {
-    "/api/v1.0/devices": BEHAVIOUR.ONLY_LOCAL,
-    "/fwUpgrade/PR06549/version.txt": BEHAVIOUR.LOCAL_FIRST,
-    "/WifiBoxInterface_vokera/getWebTemperature.php": BEHAVIOUR.REMOTE_FIRST
+    r"/api/v1\.0/devices.*": BEHAVIOUR.ONLY_LOCAL,
+    r"/fwUpgrade/PR06549/version\.txt": BEHAVIOUR.LOCAL_FIRST,
+    r"/WifiBoxInterface_vokera/getWebTemperature\.php": BEHAVIOUR.REMOTE_FIRST
 }
 
 
@@ -48,11 +48,21 @@ class ProxyMiddleware(object):
             self.http_connection[env.get("HTTP_HOST")] = http.client.HTTPConnection(ip, int(env.get("SERVER_PORT")))
             self.http_connection[env.get("HTTP_HOST")].auto_open = True
 
-        logging.debug(pformat(env))  
+        logging.debug(pformat(env))
 
         req: Request = env['werkzeug.request']
         logging.debug(pformat(("REQUEST", req.__dict__)))
-        behaviour = PROXY_URL_BEHAVIOUR[req.path] if req.path in PROXY_URL_BEHAVIOUR else BEHAVIOUR.REMOTE_IF_MISSING
+
+        def check_behaviour(path: str) -> BEHAVIOUR:
+            for reg, bev in PROXY_URL_BEHAVIOUR.items():
+                logging.debug(pformat((reg, bev)))
+                if re.match(reg, path, re.IGNORECASE) is not None:
+                    return bev
+            return BEHAVIOUR.REMOTE_IF_MISSING
+
+        # behaviour = PROXY_URL_BEHAVIOUR[req.path] if req.path in PROXY_URL_BEHAVIOUR else BEHAVIOUR.REMOTE_IF_MISSING
+        behaviour = check_behaviour(req.path)
+        logging.debug(f"Behaviour: {behaviour}")
 
         def check_path_exists(path: str, method: str):
             try:
@@ -65,6 +75,8 @@ class ProxyMiddleware(object):
         if behaviour == BEHAVIOUR.REMOTE_IF_MISSING and not check_path_exists(req.path, req.method):
             logging.warn(f"Method {req.method} {req.path} don't exist. Force ONLY_REMOTE")
             behaviour = BEHAVIOUR.ONLY_REMOTE
+        elif behaviour == BEHAVIOUR.REMOTE_IF_MISSING:
+            behaviour = BEHAVIOUR.LOCAL_FIRST
 
         length = int(env.get("CONTENT_LENGTH", "0"))
         body = BytesIO(env["wsgi.input"].read(length))
@@ -104,8 +116,8 @@ class ProxyMiddleware(object):
         """Check Reponse on Request For Proxy"""
         logging.info(f"{env['REQUEST_METHOD']} {env['REQUEST_URI']} {behaviour.name}")
         if behaviour not in (BEHAVIOUR.ONLY_LOCAL, BEHAVIOUR.ONLY_REMOTE) and body_api != body_org:
-            logging.warning("Response form original_server and API differs")
-            logging.info((('REQ', req.__dict__, body),
+            logging.warning(f"Response form original_server and API differs Cloud=\"{body_org}\" Local=\"{body_api}\"")
+            logging.debug((('REQ', req.__dict__, body),
                           ('REQ_CLOUD', env['REQUEST_METHOD'], env['REQUEST_URI'], proxy_body, {x: y for x, y in req.headers.to_wsgi_list()}),
                           ('RESP_CLOUD', resp_org.headers.__dict__, body_org),
                           ('RESP', body_api)))

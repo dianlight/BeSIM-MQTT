@@ -343,8 +343,9 @@ class Frame:
 
 
 class Wrapper:
-    def __init__(self, payload=None):
+    def __init__(self, payload=None, from_cloud=False):
         self.payload = payload
+        self.from_cloud = from_cloud
         self.msgType = None
         self.downlink = None
         self.response = None
@@ -382,8 +383,10 @@ class Wrapper:
             #       other types of errors.
             logger.error(f"Invalid Message {self.flags=:x}")
 
-        if self.downlink != 0:
-            logger.warn(f"Unexpected downlink flag")
+        if self.downlink != 0 and not self.from_cloud:
+            logger.warn("Unexpected downlink flag")
+        elif self.downlink == 0 and self.from_cloud:
+            logger.warn("Unexpected downlink flag from Cloud")
 
         return unpack.subbuf(msgLen)
 

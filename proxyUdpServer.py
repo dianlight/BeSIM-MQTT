@@ -45,19 +45,19 @@ class ProxyUdpServer(UdpServer):
 
         # Now handle the payload
 
-        wrapper = Wrapper()
+        wrapper = Wrapper(from_cloud=True)
         payload = wrapper.decodeUL(payload)
 
         msgLen = len(payload)
         logging.info(f"Cloud: {seq=} {wrapper} {length=} {msgLen=}")
 
-        """
         unpack = Unpacker(payload)
 
         if wrapper.msgType == MsgId.STATUS:
-            cseq, unk1, unk2, deviceid = unpack("<BBHI")
-            logging.info(f"{cseq=:x} {unk1=:x} {unk2=:x} {deviceid=}")
+            cseq, unk1, unk2, deviceid, lastseen = unpack("<BBHII")  # 1 1 2 4 4
+            logging.info(f"Cloud {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=} {lastseen=}")
 
+            """
             deviceStatus = getDeviceStatus(deviceid)
             peerStatus["devices"].add(deviceid)
             deviceStatus["addr"] = addr
@@ -185,23 +185,6 @@ class ProxyUdpServer(UdpServer):
 
             # Send a DL STATUS message
             self.send_STATUS(addr, deviceid, deviceStatus["lastseen"], response=1)
-
-            if wrapper.cloudsynclost:
-                # time.sleep(1) # embedded device may not handle lots of messages in a short time
-                # self.send_SWVERSION(addr,deviceStatus,deviceid,response=0)
-                # time.sleep(1) # embedded device may not handle lots of messages in a short time
-                # self.send_REFRESH(addr,deviceStatus,deviceid,response=0)
-                # time.sleep(1) # embedded device may not handle lots of messages in a short time
-                # self.send_DEVICE_TIME(addr,deviceStatus,deviceid,response=0)
-                pass
-
-            # Fetch updated program for any rooms in rooms_to_get_prog set
-            for room in rooms_to_get_prog:
-                time.sleep(
-                    1
-                )  # embedded device may not handle lots of messages in a short time
-                self.send_GET_PROG(addr, deviceStatus, deviceid, room, response=0)
-
         elif wrapper.msgType == MsgId.GET_PROG:
             cseq, unk1, unk2, deviceid, room, unk3 = unpack("<BBHIII")
 
@@ -477,21 +460,20 @@ class ProxyUdpServer(UdpServer):
                     )
                 else:
                     SignalCSeq(deviceStatus, cseq, value)
-
+        """
         else:
-            logging.warn(f"Unhandled message {wrapper.msgType}")
+            logging.warn(f"Cloud Unhandled message {wrapper.msgType} len:{msgLen=}")
+            unpack.setOffset(msgLen)  # To skip false inernal error
 
         if unpack.getOffset() != msgLen:
             # Check we have consumed the complete message we received
-            logging.warn(f"Internal error offset={unpack.getOffset()} {msgLen=}")
-    """
+            logging.warn(f"Cloud Internal error offset={unpack.getOffset()} {msgLen=}")
 
     def handleMsg(self, data, addr):
         if addr == self.cloud_addr:
             return self.handleCloudMsg(data, addr)
-        else:
-            logging.debug(
-                f"Duplicate message {len(data)} bytes : {hexdump.dump(data)} to {self.cloud_addr}"
-            )
-            self.sock.sendto(data, self.cloud_addr)
-            return super().handleMsg(data, addr)
+        logging.debug(
+            f"Cloud replicate message {len(data)} bytes : {hexdump.dump(data)} to {self.cloud_addr}"
+        )
+        self.sock.sendto(data, self.cloud_addr)
+        return super().handleMsg(data, addr)
