@@ -1,5 +1,6 @@
 import argparse
 import logging
+import coloredlogs
 import os
 import sys
 from proxyUdpServer import ProxyUdpServer
@@ -11,6 +12,8 @@ from proxyMiddleware import ProxyMiddleware
 
 
 if __name__ == "__main__":
+
+    coloredlogs.install()
 
     # Get the arguments from the command-line except the filename
     ap = argparse.ArgumentParser()
@@ -53,4 +56,6 @@ if __name__ == "__main__":
     if args["proxy_mode"] is not None:
         app.wsgi_app = ProxyMiddleware(app, args["proxy_mode"])
 
+    app.logger.setLevel(logging.WARN)
+    logging.getLogger("werkzeug").setLevel(logging.WARN)
     app.run(debug=True, host=host, port=int(port))

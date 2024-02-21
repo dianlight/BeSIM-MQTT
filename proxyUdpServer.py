@@ -55,8 +55,31 @@ class ProxyUdpServer(UdpServer):
 
         if wrapper.msgType == MsgId.STATUS:
             cseq, unk1, unk2, deviceid, lastseen = unpack("<BBHII")  # 1 1 2 4 4
-            logging.info(f"Cloud {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=} {lastseen=}")
-
+            logging.info(
+                f"Cloud {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=} {lastseen=}"
+            )
+        elif wrapper.msgType == MsgId.PROGRAM:
+            """
+            [2024-02-21 18:01:53,113 udpserver.py->run():449] INFO: From ('104.46.56.16', 6199) 54 bytes : FA D4 2A 00 FF FF FF FF 0A 0F 1E 00 FF 00 00 00 AA F2 8D 23 A6 27 43 04 06 00 00 00 00 00 00 00 11 21 22 11 11 11 11 11 11 11 11 11 11 11 11 11 11 00 63 D7 2D DF
+            [2024-02-21 18:01:53,114 proxyUdpServer.py->handleCloudMsg():52] INFO: Cloud: seq=4294967295 msgType=10(a) synclost=0 downlink=1 response=1 write=1 flags=f length=42 msgLen=38
+            [2024-02-21 18:01:53,115 proxyUdpServer.py->handleCloudMsg():465] WARNING: Cloud Unhandled message 10 len:msgLen=38
+            """
+            cseq, unk1, unk2, deviceid, room, day, *prog = unpack(
+                "<BBHIIH24B"
+            )  # 1 1 2 4 4 2
+            logging.info(
+                f"Cloud {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=} {room=} {day=} prog={ [ hex(l) for l in prog ] }"
+            )
+        elif wrapper.msgType == MsgId.PROG_END:
+            """
+            [2024-02-21 18:01:53,148 udpserver.py->run():449] INFO: From ('104.46.56.16', 6199) 30 bytes : FA D4 12 00 FF FF FF FF 2A 0F 06 00 FF 00 00 00 AA F2 8D 23 A6 27 43 04 14 0A D1 BF 2D DF
+            [2024-02-21 18:01:53,149 proxyUdpServer.py->handleCloudMsg():52] INFO: Cloud: seq=4294967295 msgType=42(2a) synclost=0 downlink=1 response=1 write=1 flags=f length=18 msgLen=14
+            [2024-02-21 18:01:53,150 proxyUdpServer.py->handleCloudMsg():465] WARNING: Cloud Unhandled message 42 len:msgLen=14
+            """
+            cseq, unk1, unk2, deviceid, room, unk3 = unpack("<BBHIIH")  # 1 1 2 4 4 2
+            logging.info(
+                f"Cloud {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=} {lastseen=}"
+            )
             """
             deviceStatus = getDeviceStatus(deviceid)
             peerStatus["devices"].add(deviceid)
