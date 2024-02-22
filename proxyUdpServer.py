@@ -1,16 +1,13 @@
 import logging
-import threading
-import time
 
 # from pprint import pformat
 import hexdump
 import dns.resolver
+from status import getRoomStatus
 from udpserver import (
     UNUSED_CSEQ,
     Frame,
-    LastCSeq,
     MsgId,
-    SignalCSeq,
     UdpServer,
     Unpacker,
     Wrapper,
@@ -36,6 +33,7 @@ class ProxyUdpServer(UdpServer):
         super().run()
 
     def handleCloudMsg(self, data, addr):
+        # sourcery skip: extract-method, merge-comparisons
 
         frame = Frame()
         payload = frame.decode(data)
@@ -58,7 +56,7 @@ class ProxyUdpServer(UdpServer):
         if wrapper.msgType == MsgId.STATUS:
             cseq, unk1, unk2, deviceid, lastseen = unpack("<BBHII")  # 1 1 2 4 4
             logging.info(
-                f"Cloud {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=} {lastseen=}"
+                f"Cloud {wrapper.msgType.name=} {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=} {lastseen=}"
             )
         elif wrapper.msgType == MsgId.PROGRAM:
             """
@@ -70,8 +68,13 @@ class ProxyUdpServer(UdpServer):
                 "<BBHIIH24B"
             )  # 1 1 2 4 4 2
             logging.info(
-                f"Cloud {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=} {room=} {day=} prog={ [ hex(l) for l in prog ] }"
+                f"Cloud {wrapper.msgType.name=} {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=} {room=} {day=} prog={ [ hex(l) for l in prog ] }"
             )
+            roomStatus = getRoomStatus(deviceid, room)
+            roomStatus["days"][day] = prog
+
+            # self.send_PROGRAM( ,device=deviceid,room=room,day=day,prog=prog,response=0,write=1, wait=0)
+
         elif wrapper.msgType == MsgId.PROG_END:
             """
             [2024-02-21 18:01:53,148 udpserver.py->run():449] INFO: From ('104.46.56.16', 6199) 30 bytes : FA D4 12 00 FF FF FF FF 2A 0F 06 00 FF 00 00 00 AA F2 8D 23 A6 27 43 04 14 0A D1 BF 2D DF
@@ -80,8 +83,30 @@ class ProxyUdpServer(UdpServer):
             """
             cseq, unk1, unk2, deviceid, room, unk3 = unpack("<BBHIIH")  # 1 1 2 4 4 2
             logging.info(
-                f"Cloud {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=} {lastseen=}"
+                f"Cloud {wrapper.msgType.name=} {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=} {lastseen=}"
             )
+        elif wrapper.msgType == MsgId.PING:
+            cseq, unk1, unk2, deviceid, unk3 = unpack("<BBHIH")
+
+            logging.info(
+                f"Cloud {wrapper.msgType.name=} {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=} {unk3=}"
+            )
+
+            if cseq != UNUSED_CSEQ:
+                logging.warn(f"Unexpected {cseq=}")
+
+            if unk1 != 0x2:
+                logging.warn(f"Unexpected {unk1=:x}")
+
+            # on uplink unk2 is usually 4, but can be zero (when out of sync?)
+            if unk2 != 4 and unk2 != 0:
+                logging.warn(f"Unexpected {unk2=:x}")
+
+            if unk3 != 1:
+                logging.warn(f"Unexpected {unk3=:x}")
+
+            # Send a DL PING message
+            self.send_PING(addr, deviceid, response=0)
             """
             deviceStatus = getDeviceStatus(deviceid)
             peerStatus["devices"].add(deviceid)
