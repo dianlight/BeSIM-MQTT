@@ -3,10 +3,13 @@ from io import BytesIO
 import itertools
 from pprint import pformat
 import logging
+from wsgiref.types import StartResponse, WSGIEnvironment
+from werkzeug import datastructures
 import dns.resolver
 from flask import Flask, Request
 import http.client
 import re
+import typing as t
 
 BEHAVIOUR = Enum('BEHAVIOUR', [
     'REMOTE_FIRST',  # If remote and local differs return remote
@@ -39,7 +42,7 @@ class ProxyMiddleware(object):
         # for answer in self.upstream_resolver.query('google.com', "A"):
         #    logging.info(answer.to_text())
 
-    def __call__(self, env, resp):  # sourcery skip: identity-comprehension
+    def __call__(self, env: WSGIEnvironment, resp: StartResponse) -> t.Iterable[bytes] :  # sourcery skip: identity-comprehension
         if env.get("HTTP_HOST") in ['127.0.0.1', 'localhost'] or re.match(r"\w+\-besim\w{0,1}", env.get("HTTP_HOST"), re.IGNORECASE) is not None:
             return self._app(env, lambda status, headers, *args: resp(status, headers, *args))
         elif env.get("HTTP_HOST") not in self.http_connection or self.http_connection[env.get("HTTP_HOST")] is None:
@@ -47,11 +50,12 @@ class ProxyMiddleware(object):
             logging.info(f"Upstream Connection for {env.get("HTTP_HOST")} is {pformat(ip)}:{env.get("SERVER_PORT")}")
             self.http_connection[env.get("HTTP_HOST")] = http.client.HTTPConnection(ip, int(env.get("SERVER_PORT")))
             self.http_connection[env.get("HTTP_HOST")].auto_open = True
+       
+        req_headers = datastructures.EnvironHeaders(env)   
+        logging.debug(pformat(req_headers))
 
-        logging.debug(pformat(env))
-
-        req: Request = env['werkzeug.request']
-        logging.debug(pformat(("REQUEST", req.__dict__)))
+        #  req: Request = env['werkzeug.request']
+        #  logging.debug(pformat(("REQUEST", req.__dict__)))
 
         def check_behaviour(path: str) -> BEHAVIOUR:
             for reg, bev in PROXY_URL_BEHAVIOUR.items():
@@ -61,19 +65,20 @@ class ProxyMiddleware(object):
             return BEHAVIOUR.REMOTE_IF_MISSING
 
         # behaviour = PROXY_URL_BEHAVIOUR[req.path] if req.path in PROXY_URL_BEHAVIOUR else BEHAVIOUR.REMOTE_IF_MISSING
-        behaviour = check_behaviour(req.path)
+        behaviour = check_behaviour(env['REQUEST_URI'])
         logging.debug(f"Behaviour: {behaviour}")
 
         def check_path_exists(path: str, method: str):
             try:
-                adapter = self.app.create_url_adapter(request=req)
+                vreq = Request(env)
+                adapter = self.app.create_url_adapter(request=vreq)
                 adapter.match(path, method)
             except Exception:
                 return False
             return True
 
-        if behaviour == BEHAVIOUR.REMOTE_IF_MISSING and not check_path_exists(req.path, req.method):
-            logging.warn(f"Method {req.method} {req.path} don't exist. Force ONLY_REMOTE")
+        if behaviour == BEHAVIOUR.REMOTE_IF_MISSING and not check_path_exists(env['REQUEST_URI'], env['REQUEST_METHOD']):
+            logging.warn(f"Method {env['REQUEST_METHOD']} {env['REQUEST_URI']} don't exist. Force ONLY_REMOTE")
             behaviour = BEHAVIOUR.ONLY_REMOTE
         elif behaviour == BEHAVIOUR.REMOTE_IF_MISSING:
             behaviour = BEHAVIOUR.LOCAL_FIRST
@@ -85,15 +90,17 @@ class ProxyMiddleware(object):
         body.seek(0)
 
         if behaviour != BEHAVIOUR.ONLY_LOCAL:
-            logging.debug(pformat(("PROXY_CALL", env['REQUEST_METHOD'], env['REQUEST_URI'], proxy_body, {x: y for x, y in req.headers.to_wsgi_list()})))
+            logging.debug(pformat(("PROXY_CALL", env['REQUEST_METHOD'], env['REQUEST_URI'], proxy_body, {x: y for x, y in req_headers.items()} 
+                                   # {x: y for x, y in req.headers.to_wsgi_list()}
+                                   )))
             self.http_connection[env.get("HTTP_HOST")].connect()
-            self.http_connection[env.get("HTTP_HOST")].request(env['REQUEST_METHOD'], env['REQUEST_URI'], proxy_body, {x: y for x, y in req.headers.to_wsgi_list()})
+            self.http_connection[env.get("HTTP_HOST")].request(env['REQUEST_METHOD'], env['REQUEST_URI'], proxy_body, {x: y for x, y in req_headers.items()} 
+                                                               # {x: y for x, y in req.headers.to_wsgi_list()}
+                                                               )
 
             resp_org = self.http_connection[env.get("HTTP_HOST")].getresponse()
             body_org = "".join([chr(b) for b in resp_org.read()])
             logging.debug(pformat(("PROXY_RESPONSE", resp_org.headers, body_org)))
-        # env['PROXY_RESP'] = resp_org
-        # env['PROXY_BODY'] = body_org
 
         def intercept_response(status, headers, *args):
             if behaviour in [BEHAVIOUR.REMOTE_FIRST, BEHAVIOUR.ONLY_REMOTE]:
@@ -102,7 +109,7 @@ class ProxyMiddleware(object):
 
             def writer(data):
                 logging.debug(("RESPONSE_BODY", data))
-                return resp_int(data)    
+                return resp_int(data)
             logging.debug(pformat(("RESPONSE", status, headers, args)))
             return writer
 
@@ -117,8 +124,8 @@ class ProxyMiddleware(object):
         logging.info(f"{env['REQUEST_METHOD']} {env['REQUEST_URI']} {behaviour.name}")
         if behaviour not in (BEHAVIOUR.ONLY_LOCAL, BEHAVIOUR.ONLY_REMOTE) and body_api != body_org:
             logging.warning(f"Response form original_server and API differs Cloud=\"{body_org}\" Local=\"{body_api}\"")
-            logging.debug((('REQ', req.__dict__, body),
-                          ('REQ_CLOUD', env['REQUEST_METHOD'], env['REQUEST_URI'], proxy_body, {x: y for x, y in req.headers.to_wsgi_list()}),
+            logging.debug((('REQ', req_headers.__dict__, body),
+                          ('REQ_CLOUD', env['REQUEST_METHOD'], env['REQUEST_URI'], proxy_body, {x: y for x, y in req_headers.items()}),
                           ('RESP_CLOUD', resp_org.headers.__dict__, body_org),
                           ('RESP', body_api)))
 

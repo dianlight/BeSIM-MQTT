@@ -13,8 +13,6 @@ from proxyMiddleware import ProxyMiddleware
 
 if __name__ == "__main__":
 
-    coloredlogs.install(isatty=True)
-
     # Get the arguments from the command-line except the filename
     ap = argparse.ArgumentParser()
 
@@ -32,6 +30,7 @@ if __name__ == "__main__":
 
     fmt = "[%(asctime)s %(filename)s->%(funcName)s():%(lineno)s] %(levelname)s: %(message)s"
     logging.basicConfig(format=fmt, level=args["logLevel"])
+    coloredlogs.install(isatty=True, level=args["logLevel"])
 
     database_name = os.getenv("BESIM_DATABASE", "besim.db")
     database = Database(name=database_name)
@@ -51,11 +50,13 @@ if __name__ == "__main__":
 
     host = os.getenv("FLASK_HOST", "0.0.0.0")
     port = os.getenv("FLASK_PORT", "80")
-    # debug = os.getenv("FLASK_DEBUG", logging.DEBUG >= logging.root.level)
+    debug = os.getenv("FLASK_DEBUG", logging.DEBUG >= logging.root.level)
 
     if args["proxy_mode"] is not None:
         app.wsgi_app = ProxyMiddleware(app, args["proxy_mode"])
 
     # app.logger.setLevel(logging.WARN)
     logging.getLogger("werkzeug").setLevel(logging.WARN)
-    app.run(debug=True, host=host, port=int(port))
+    app.run(
+        debug=debug, host=host, port=int(port), use_debugger=True, use_reloader=False
+    )

@@ -28,7 +28,7 @@ class SetEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, o)
 
 
-app = Flask(__name__, subdomain_matching=True, host_matching=False, static_host=None)
+app = Flask("BeSim", subdomain_matching=True, host_matching=False, static_host=None)
 # dashboard.bind(app)
 CORS(app)
 api = Api(app)

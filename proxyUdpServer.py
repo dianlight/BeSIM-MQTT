@@ -19,6 +19,8 @@ from udpserver import (
 
 class ProxyUdpServer(UdpServer):
 
+    knocks = 0
+
     def __init__(self, addr, upstream: str):
         super().__init__(addr)
         upstream_resolver = dns.resolver.Resolver()
@@ -493,7 +495,11 @@ class ProxyUdpServer(UdpServer):
             logging.warn(f"Cloud Internal error offset={unpack.getOffset()} {msgLen=}")
 
     def handleMsg(self, data, addr):
-        if addr == self.cloud_addr:
+        if len(data) == 1 and data[0] == 0x58:
+            self.knocks += 1
+            return
+        if addr == self.cloud_addr or self.knocks >= 3:
+            self.knocks = 0
             return self.handleCloudMsg(data, addr)
         logging.debug(
             f"Cloud replicate message {len(data)} bytes : {hexdump.dump(data)} to {self.cloud_addr}"
