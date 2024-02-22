@@ -13,7 +13,7 @@ from proxyMiddleware import ProxyMiddleware
 
 if __name__ == "__main__":
 
-    coloredlogs.install()
+    coloredlogs.install(isatty=True)
 
     # Get the arguments from the command-line except the filename
     ap = argparse.ArgumentParser()
