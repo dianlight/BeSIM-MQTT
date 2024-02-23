@@ -48,6 +48,15 @@ if __name__ == "__main__":
         help="Uses met.no to get the weather at the servers' latitude, longitude",
     )
 
+    ap.add_argument(
+        "-c",
+        "--config_path",
+        required=False,
+        default=os.curdir,
+        type=str,
+        help="The Path where store configuration and db",
+    )
+
     args: dict[str, Any] = vars(ap.parse_args())
 
     fmt = "[%(asctime)s %(filename)s->%(funcName)s():%(lineno)s] %(levelname)s: %(message)s"
@@ -56,7 +65,9 @@ if __name__ == "__main__":
     logging.basicConfig(format=fmt, level=args["logLevel"])
     coloredlogs.install(isatty=True, level=args["logLevel"])
 
-    database_name = os.getenv("BESIM_DATABASE", "besim.db")
+    database_name: str = os.getenv(
+        "BESIM_DATABASE", os.path.join(args["config_path"], "besim.db")
+    )
     database = Database(name=database_name)
     if not database.check_migrations():
         sys.exit(1)  # error should already have been logged
