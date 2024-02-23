@@ -38,6 +38,10 @@ class ProxyMiddleware(object):
     def __init__(self, app: Flask, upstream: str) -> None:
         self._app = app.wsgi_app
         self.app: Flask = app
+
+        if app.config["weather_location_latitude"][0] is not None:
+            PROXY_URL_BEHAVIOUR[r"/WifiBoxInterface_vokera/getWebTemperature\.php"]=BEHAVIOUR.LOCAL_FIRST
+
         self.upstream_resolver.nameservers = [upstream]
         logging.info(
             f"Upstream DNS Check: google.com = {pformat(next(self.upstream_resolver.query('google.com', 'A').__iter__()).to_text())}"  # type: ignore
@@ -52,8 +56,12 @@ class ProxyMiddleware(object):
         if http_host is None:
             raise ValueError("Internal server error. HTTP_HOST env is null!")
         if (
-            http_host in ["127.0.0.1", "localhost"]
-            or re.match(r"\w+\-besim\w{0,1}", http_host, re.IGNORECASE) is not None
+            re.match(
+                r"((\w+\-besim\w{0,1})|(127\.\d\.\d\.\d)|(localhost.*))(:\d+){0,1}",
+                http_host,
+                re.IGNORECASE,
+            )
+            is not None
         ):
             return self._app(
                 env, lambda status, headers, *args: resp(status, headers, *args)
@@ -72,7 +80,7 @@ class ProxyMiddleware(object):
             self.http_connection[http_host].auto_open = True
 
         req_headers = datastructures.EnvironHeaders(env)
-        logging.debug(pformat(req_headers))
+        #  logging.debug(pformat(req_headers))
 
         #  req: Request = env['werkzeug.request']
         #  logging.debug(pformat(("REQUEST", req.__dict__)))

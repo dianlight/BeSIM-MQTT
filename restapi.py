@@ -48,6 +48,8 @@ def getWeather():
     latitude = os.getenv("LATITUDE", app.config["weather_location_latitude"][0])
     longitude = os.getenv("LONGITUDE", app.config["weather_location_latitude"][1])
 
+    logger.debug(f"Ask Weather for {latitude} {longitude}")
+
     if latitude is None or longitude is None:
         return {}, 500
 
@@ -97,10 +99,11 @@ def getVersion():
     methods=["GET"],
     host="api.besmart-home.com",
 )
-def getWebTemperature():
+def getWebTemperature() -> str:
     logger.debug(f"{request.args}")
-    deviceId = request.args.get("deviceId")
+    #  deviceId: str | None = request.args.get("deviceId")
     weather, status_code = getWeather()
+    logger.debug(f"weather {weather} {status_code}")
     if status_code != 200:
         return "E_1"
     else:
