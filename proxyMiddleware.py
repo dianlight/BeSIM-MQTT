@@ -10,6 +10,8 @@ from flask import Flask, Request
 import http.client
 import re
 import typing as t
+from database import Database
+import time
 
 BEHAVIOUR = Enum(
     "BEHAVIOUR",
@@ -30,6 +32,35 @@ PROXY_URL_BEHAVIOUR = {
 }
 
 
+def timing(f):
+    def wrap(*args, **kwargs):
+        time1: float = time.time()
+        try:
+            ret = f(*args, **kwargs)
+        except Exception as e:
+            ret = repr(e)
+            raise e
+        finally:
+            time2: float = time.time()
+            # logging.info(pformat((args, kwargs, ret)))
+            # logging.info(
+            #     "{:s} function took {:.3f} ms".format(
+            #         f.__name__, (time2 - time1) * 1000.0
+            #     )
+            # )
+            Database().log_traces(
+                args[1]["SERVER_PROTOCOL"],
+                args[1]["REMOTE_ADDR"],
+                f"{args[1]['REQUEST_METHOD']} {args[1]['RAW_URI']}",
+                int((time2 - time1) * 1000.0),
+                args[1]["RESPONSE_STATUS"] if "RESPONSE_STATUS" in args[1] else ret,
+            )
+
+        return ret
+
+    return wrap
+
+
 class ProxyMiddleware(object):
 
     upstream_resolver = dns.resolver.Resolver()
@@ -40,7 +71,9 @@ class ProxyMiddleware(object):
         self.app: Flask = app
 
         if app.config["weather_location_latitude"][0] is not None:
-            PROXY_URL_BEHAVIOUR[r"/WifiBoxInterface_vokera/getWebTemperature\.php"]=BEHAVIOUR.LOCAL_FIRST
+            PROXY_URL_BEHAVIOUR[r"/WifiBoxInterface_vokera/getWebTemperature\.php"] = (
+                BEHAVIOUR.LOCAL_FIRST
+            )
 
         self.upstream_resolver.nameservers = [upstream]
         logging.info(
@@ -49,12 +82,14 @@ class ProxyMiddleware(object):
         # for answer in self.upstream_resolver.query('google.com', "A"):
         #    logging.info(answer.to_text())
 
+    @timing
     def __call__(
         self, env: WSGIEnvironment, resp: StartResponse
     ) -> t.Iterable[bytes]:  # sourcery skip: identity-comprehension
         http_host = env.get("HTTP_HOST")
         if http_host is None:
             raise ValueError("Internal server error. HTTP_HOST env is null!")
+
         if (
             re.match(
                 r"((\w+\-besim\w{0,1})|(127\.\d\.\d\.\d)|(localhost.*))(:\d+){0,1}",
@@ -66,24 +101,6 @@ class ProxyMiddleware(object):
             return self._app(
                 env, lambda status, headers, *args: resp(status, headers, *args)
             )
-        elif (
-            http_host not in self.http_connection
-            or self.http_connection[env.get("HTTP_HOST", "")] is None
-        ):
-            ip = next(self.upstream_resolver.query(http_host, "A").__iter__()).to_text()  # type: ignore
-            logging.info(
-                f"Upstream Connection for {http_host} is {pformat(ip)}:{env.get('SERVER_PORT','80')}"
-            )
-            self.http_connection[http_host] = http.client.HTTPConnection(
-                ip, int(env.get("SERVER_PORT", "80"))
-            )
-            self.http_connection[http_host].auto_open = True
-
-        req_headers = datastructures.EnvironHeaders(env)
-        #  logging.debug(pformat(req_headers))
-
-        #  req: Request = env['werkzeug.request']
-        #  logging.debug(pformat(("REQUEST", req.__dict__)))
 
         def check_behaviour(path: str) -> BEHAVIOUR:
             for reg, bev in PROXY_URL_BEHAVIOUR.items():
@@ -95,6 +112,27 @@ class ProxyMiddleware(object):
         # behaviour = PROXY_URL_BEHAVIOUR[req.path] if req.path in PROXY_URL_BEHAVIOUR else BEHAVIOUR.REMOTE_IF_MISSING
         behaviour: BEHAVIOUR = check_behaviour(env["REQUEST_URI"])
         logging.debug(f"Behaviour: {behaviour}")
+
+        if (
+            http_host not in self.http_connection
+            or self.http_connection[http_host] is None
+        ):
+            try:
+                ip = next(self.upstream_resolver.query(http_host, "A").__iter__()).to_text()  # type: ignore
+                logging.info(
+                    f"Upstream Connection for {http_host} is {pformat(ip)}:{env.get('SERVER_PORT','80')}"
+                )
+                self.http_connection[http_host] = http.client.HTTPConnection(
+                    ip, int(env.get("SERVER_PORT", "80"))
+                )
+                self.http_connection[http_host].auto_open = True
+            except Exception as e:
+                logging.warning(e)
+                if behaviour == BEHAVIOUR.ONLY_REMOTE:
+                    raise e
+                behaviour = BEHAVIOUR.ONLY_LOCAL
+
+        req_headers = datastructures.EnvironHeaders(env)
 
         def check_path_exists(path: str, method: str) -> bool:
             try:
@@ -152,7 +190,10 @@ class ProxyMiddleware(object):
             body_org: str = "".join([chr(b) for b in resp_org.read()])
             logging.debug(pformat(("PROXY_RESPONSE", resp_org.headers, body_org)))
 
-        def intercept_response(status, headers, *args):  # -> Callable[..., object]:
+        def intercept_response(
+            status: str, headers, *args
+        ):  # -> Callable[..., object]:
+            env["RESPONSE_STATUS"] = status
             if behaviour in [BEHAVIOUR.REMOTE_FIRST, BEHAVIOUR.ONLY_REMOTE]:
                 headers = resp_org.headers.items()
             resp_int = resp(status, headers, *args)
