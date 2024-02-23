@@ -1,6 +1,8 @@
 import argparse
+from ast import arg
 import logging
 from pprint import pformat
+from collections import Counter
 from typing import Any
 import coloredlogs
 import os
@@ -23,7 +25,9 @@ if __name__ == "__main__":
         "--logLevel",
         required=False,
         default=logging.INFO,
-        choices=logging.getLevelNamesMapping().keys(),
+        choices=dict(
+            Counter(logging.getLevelNamesMapping().keys()) + Counter({"TRACE"})
+        ),
     )
 
     ap.add_argument(
@@ -47,6 +51,8 @@ if __name__ == "__main__":
     args: dict[str, Any] = vars(ap.parse_args())
 
     fmt = "[%(asctime)s %(filename)s->%(funcName)s():%(lineno)s] %(levelname)s: %(message)s"
+    if args["logLevel"] == "TRACE":
+        args["logLevel"] = logging.DEBUG
     logging.basicConfig(format=fmt, level=args["logLevel"])
     coloredlogs.install(isatty=True, level=args["logLevel"])
 
