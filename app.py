@@ -1,5 +1,7 @@
 import argparse
 import logging
+from pprint import pformat
+from typing import Any
 import coloredlogs
 import os
 import sys
@@ -24,9 +26,25 @@ if __name__ == "__main__":
         choices=logging.getLevelNamesMapping().keys(),
     )
 
-    ap.add_argument("-p", "--proxy_mode", required=False, default="1.1.1.1")
+    ap.add_argument(
+        "-p",
+        "--proxy_mode",
+        required=False,
+        default="1.1.1.1",
+        help="the IP of upstream DNS to resolve hosts",
+    )
 
-    args = vars(ap.parse_args())
+    ap.add_argument(
+        "-w",
+        "--weather_location",
+        action="extend",
+        nargs=2,
+        required=False,
+        type=float,
+        help="Uses met.no to get the weather at the servers' latitude, longitude",
+    )
+
+    args: dict[str, Any] = vars(ap.parse_args())
 
     fmt = "[%(asctime)s %(filename)s->%(funcName)s():%(lineno)s] %(levelname)s: %(message)s"
     logging.basicConfig(format=fmt, level=args["logLevel"])
@@ -38,6 +56,12 @@ if __name__ == "__main__":
         sys.exit(1)  # error should already have been logged
     database.purge(365 * 2)  # @todo currently only purging old records at startup
 
+    if args["weather_location"] is not None:
+        # logging.(pformat(args["weather_location"]))
+        app.config["weather_location_latitude"] = args["weather_location"]
+    else:
+        app.config["weather_location_latitude"] = [None, None]
+
     # udpServer = UdpServer(("", 6199))
     if args["proxy_mode"] is not None:
         udpServer = ProxyUdpServer(("", 6199), args["proxy_mode"])
@@ -48,9 +72,9 @@ if __name__ == "__main__":
     # app.config["SERVER_NAME"] = "api.besmart-home.com:80"
     logging.debug(app.url_map)
 
-    host = os.getenv("FLASK_HOST", "0.0.0.0")
-    port = os.getenv("FLASK_PORT", "80")
-    debug = os.getenv("FLASK_DEBUG", logging.DEBUG >= logging.root.level)
+    host: str = os.getenv("FLASK_HOST", "0.0.0.0")
+    port: str = os.getenv("FLASK_PORT", "80")
+    debug = bool(os.getenv("FLASK_DEBUG", logging.DEBUG >= logging.root.level))
 
     if args["proxy_mode"] is not None:
         app.wsgi_app = ProxyMiddleware(app, args["proxy_mode"])

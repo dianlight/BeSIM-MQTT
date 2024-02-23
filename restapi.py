@@ -45,8 +45,8 @@ def getWeather():
     url = "https://api.met.no/weatherapi/locationforecast/2.0/complete"
 
     # Get the lat/long from environment
-    latitude = os.getenv("LATITUDE", None)
-    longitude = os.getenv("LONGITUDE", None)
+    latitude = os.getenv("LATITUDE", app.config["weather_location_latitude"][0])
+    longitude = os.getenv("LONGITUDE", app.config["weather_location_latitude"][1])
 
     if latitude is None or longitude is None:
         return {}, 500
