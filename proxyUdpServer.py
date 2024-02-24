@@ -12,6 +12,8 @@ from udpserver import (
     Unpacker,
     Wrapper,
 )
+from database import Database
+import time
 
 
 class ProxyUdpServer(UdpServer):
@@ -23,7 +25,7 @@ class ProxyUdpServer(UdpServer):
         upstream_resolver = dns.resolver.Resolver()
         upstream_resolver.nameservers = [upstream]
         upstream_ip = next(
-            upstream_resolver.query("api.besmart-home.com", "A").__iter__()
+            upstream_resolver.query("api.besmart-home.com", "A").__iter__()  # type: ignore
         ).to_text()
         logging.info(f"Upstream DNS Check: api.besmart-home.com = {upstream_ip}")
         self.cloud_addr = (upstream_ip, 6199)
@@ -32,13 +34,13 @@ class ProxyUdpServer(UdpServer):
         logging.info(f"Proxy UDP server is running to {self.cloud_addr}")
         super().run()
 
-    def handleCloudMsg(self, data, addr):
+    def handleCloudMsg(self, data: bytes, addr) -> str:
         # sourcery skip: extract-method, merge-comparisons
 
         frame = Frame()
         payload = frame.decode(data)
         seq = frame.seq
-        length = len(payload)
+        length = len(payload) if payload is not None else 0
 
         # peerStatus = getPeerStatus(addr)
         # peerStatus["seq"] = seq  # @todo handle sequence number
@@ -56,7 +58,7 @@ class ProxyUdpServer(UdpServer):
         if wrapper.msgType == MsgId.STATUS:
             cseq, unk1, unk2, deviceid, lastseen = unpack("<BBHII")  # 1 1 2 4 4
             logging.info(
-                f"Cloud {wrapper.msgType.name=} {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=} {lastseen=}"
+                f"Cloud {MsgId(wrapper.msgType).name=} {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=} {lastseen=}"
             )
         elif wrapper.msgType == MsgId.PROGRAM:
             """
@@ -68,7 +70,7 @@ class ProxyUdpServer(UdpServer):
                 "<BBHIIH24B"
             )  # 1 1 2 4 4 2
             logging.info(
-                f"Cloud {wrapper.msgType.name=} {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=} {room=} {day=} prog={ [ hex(l) for l in prog ] }"
+                f"Cloud {MsgId(wrapper.msgType).name=} {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=} {room=} {day=} prog={ [ hex(l) for l in prog ] }"
             )
             roomStatus = getRoomStatus(deviceid, room)
             roomStatus["days"][day] = prog
@@ -83,13 +85,13 @@ class ProxyUdpServer(UdpServer):
             """
             cseq, unk1, unk2, deviceid, room, unk3 = unpack("<BBHIIH")  # 1 1 2 4 4 2
             logging.info(
-                f"Cloud {wrapper.msgType.name=} {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=} {lastseen=}"
+                f"Cloud {MsgId(wrapper.msgType).name=} {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=} {lastseen=}"
             )
         elif wrapper.msgType == MsgId.PING:
             cseq, unk1, unk2, deviceid, unk3 = unpack("<BBHIH")
 
             logging.info(
-                f"Cloud {wrapper.msgType.name=} {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=} {unk3=}"
+                f"Cloud {MsgId(wrapper.msgType).name=} {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=} {unk3=}"
             )
 
             if cseq != UNUSED_CSEQ:
@@ -512,22 +514,44 @@ class ProxyUdpServer(UdpServer):
                     SignalCSeq(deviceStatus, cseq, value)
         """
         else:
-            logging.warn(f"Cloud Unhandled message {wrapper.msgType} len:{msgLen=}")
+            logging.warn(
+                f"Cloud Unhandled message {MsgId(wrapper.msgType).name=} {wrapper.msgType=} len:{msgLen=}"
+            )
             unpack.setOffset(msgLen)  # To skip false inernal error
 
         if unpack.getOffset() != msgLen:
             # Check we have consumed the complete message we received
             logging.warn(f"Cloud Internal error offset={unpack.getOffset()} {msgLen=}")
 
+        return MsgId(wrapper.msgType).name
+
     def handleMsg(self, data, addr):
         if len(data) == 1 and data[0] == 0x58:
             self.knocks += 1
             return
-        if addr == self.cloud_addr or self.knocks >= 3:
-            self.knocks = 0
-            return self.handleCloudMsg(data, addr)
-        logging.debug(
-            f"Cloud replicate message {len(data)} bytes : {hexdump.dump(data)} to {self.cloud_addr}"
-        )
-        self.sock.sendto(data, self.cloud_addr)
-        return super().handleMsg(data, addr)
+        time1: float = time.time()
+        cret = "OK"
+        ret = hexdump.dump(data)
+        try:
+            if addr == self.cloud_addr or self.knocks >= 3:
+                self.knocks = 0
+                ret = self.handleCloudMsg(data, addr)
+                return ret
+            logging.debug(
+                f"Cloud replicate message {len(data)} bytes : {hexdump.dump(data)} to {self.cloud_addr}"
+            )
+            self.sock.sendto(data, self.cloud_addr)
+            ret = super().handleMsg(data, addr)
+            return ret
+        except Exception as e:
+            cret = repr(e)
+            raise e
+        finally:
+            time2: float = time.time()
+            # logging.info(pformat((args, kwargs, ret)))
+            logging.debug(
+                "{:s} function took {:.3f} ms".format(ret, (time2 - time1) * 1000.0)
+            )
+            Database().log_traces(
+                "UDP", str(addr), ret, int((time2 - time1) * 1000.0), cret
+            )

@@ -43,11 +43,11 @@ def timing(f):
         finally:
             time2: float = time.time()
             # logging.info(pformat((args, kwargs, ret)))
-            # logging.info(
-            #     "{:s} function took {:.3f} ms".format(
-            #         f.__name__, (time2 - time1) * 1000.0
-            #     )
-            # )
+            logging.debug(
+                "{:s} function took {:.3f} ms".format(
+                    f.__name__, (time2 - time1) * 1000.0
+                )
+            )
             Database().log_traces(
                 args[1]["SERVER_PROTOCOL"],
                 args[1]["REMOTE_ADDR"],

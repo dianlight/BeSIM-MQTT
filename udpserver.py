@@ -1,3 +1,4 @@
+from typing import Any
 from crccheck.crc import Crc16Xmodem
 from enum import IntEnum
 import time
@@ -18,27 +19,27 @@ FAKEBOOST_DURATION = 1800  # seconds
 
 
 class Unpacker:
-    def __init__(self, buffer, offset=0):
-        self.buffer = buffer
-        self.offset = offset
+    def __init__(self, buffer: bytes, offset=0) -> None:
+        self.buffer: bytes = buffer
+        self.offset: int = offset
 
-    def __call__(self, fmt):
+    def __call__(self, fmt) -> tuple[Any, ...]:
         rc = struct.unpack_from(fmt, self.buffer, self.offset)
         self.offset += struct.calcsize(fmt)
         return rc
 
-    def subbuf(self, length):
+    def subbuf(self, length) -> bytes:
         b = self.buffer[self.offset : self.offset + length]
         self.offset += length
         return b
 
-    def skip(self, length):
+    def skip(self, length) -> None:
         self.offset += length
 
-    def getOffset(self):
+    def getOffset(self) -> int:
         return self.offset
 
-    def setOffset(self, offset):
+    def setOffset(self, offset: int) -> None:
         self.offset = offset
 
 
@@ -287,11 +288,13 @@ def SignalCSeq(device, cseq, val):
 
 
 class Frame:
-    def __init__(self, payload=None):
+    def __init__(self, payload: bytes | None = None) -> None:
         self.seq = None
-        self.payload = payload
+        self.payload: bytes | None = payload
 
-    def encode(self, seq=0xFFFFFFFF):
+    def encode(self, seq=0xFFFFFFFF) -> bytes:
+        if self.payload is None:
+            raise ValueError("Frame without payload can't be encoded!")
         self.seq = seq
         buf = struct.pack("<HHI", MAGIC_HEADER, len(self.payload), seq)
         buf += self.payload
@@ -299,7 +302,7 @@ class Frame:
         buf += struct.pack("<HH", crc, MAGIC_FOOTER)
         return buf
 
-    def decode(self, data):
+    def decode(self, data) -> bytes | None:
         unpack = Unpacker(data)
         hdr, length, self.seq = unpack("<HHI")
 
@@ -732,7 +735,7 @@ class UdpServer(threading.Thread):
         else:
             return None
 
-    def handleMsg(self, data, addr):
+    def handleMsg(self, data, addr) -> str:
 
         frame = Frame()
         payload = frame.decode(data)
@@ -1183,7 +1186,9 @@ class UdpServer(threading.Thread):
             # Check we have consumed the complete message we received
             logger.warn(f"Internal error offset={unpack.getOffset()} {msgLen=}")
 
+        return MsgId(wrapper.msgType).name
 
-if __name__ == "__main__":
-    udpServer = UdpServer(("", 6199))
-    udpServer.start()
+
+# if __name__ == "__main__":
+#     udpServer = UdpServer(("", 6199))
+#     udpServer.start()
