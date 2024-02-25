@@ -26,6 +26,8 @@ BEHAVIOUR = Enum(
 
 """ Standard Behaviour is REMOTE_IF_MISSING """
 PROXY_URL_BEHAVIOUR = {
+    r"/static.*": BEHAVIOUR.ONLY_LOCAL,
+    r"[/|/index\.html]": BEHAVIOUR.ONLY_LOCAL,
     r"/api/v1\.0/devices.*": BEHAVIOUR.ONLY_LOCAL,
     r"/fwUpgrade/PR06549/version\.txt": BEHAVIOUR.LOCAL_FIRST,
     r"/WifiBoxInterface_vokera/getWebTemperature\.php": BEHAVIOUR.REMOTE_FIRST,
@@ -39,10 +41,11 @@ def timing(f):
             ret = f(*args, **kwargs)
         except Exception as e:
             ret = repr(e)
+            logging.error(ret)
             raise e
         finally:
             time2: float = time.time()
-            # logging.info(pformat((args, kwargs, ret)))
+            #  logging.info(pformat((args, kwargs, ret)))
             logging.debug(
                 "{:s} function took {:.3f} ms".format(
                     f.__name__, (time2 - time1) * 1000.0
@@ -53,7 +56,11 @@ def timing(f):
                 args[1]["REMOTE_ADDR"],
                 f"{args[1]['REQUEST_METHOD']} {args[1]['RAW_URI']}",
                 int((time2 - time1) * 1000.0),
-                args[1]["RESPONSE_STATUS"] if "RESPONSE_STATUS" in args[1] else ret,
+                (
+                    args[1]["RESPONSE_STATUS"]
+                    if "RESPONSE_STATUS" in args[1]
+                    else pformat(ret)
+                ),
             )
 
         return ret
@@ -213,7 +220,9 @@ class ProxyMiddleware(object):
         logging.debug(("RESPONSE_ITERABLE", body_api))
 
         """Check Reponse on Request For Proxy"""
-        logging.info(f"{env['REQUEST_METHOD']} {env['REQUEST_URI']} {behaviour.name}")
+        logging.info(
+            f"{env['REMOTE_ADDR']} {env['REQUEST_METHOD']} {env['REQUEST_URI']} {behaviour.name}"
+        )
         if (
             behaviour not in (BEHAVIOUR.ONLY_LOCAL, BEHAVIOUR.ONLY_REMOTE)
             and body_api != body_org

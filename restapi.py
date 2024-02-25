@@ -1,3 +1,4 @@
+import token
 from flask import Flask, request
 from flask_restful import Api, Resource
 from flask_cors import CORS
@@ -15,9 +16,10 @@ from webargs.flaskparser import use_kwargs, use_args
 from udpserver import MsgId, UdpServer
 from status import getStatus, getDeviceStatus, getRoomStatus
 from database import Database
+from flask import render_template
 
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 class SetEncoder(json.JSONEncoder):
@@ -135,8 +137,13 @@ def postBoilerRecords():
 
 
 @app.route("/")
-def index():
-    return "Web server is running"
+@app.route("/index.html")
+def index() -> str:
+    return render_template("index.html", token="981292187321973198")
+
+
+#    app.config["static_path"] = args["docroot"]
+#    return "Web server is running"
 
 
 #

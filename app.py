@@ -49,10 +49,28 @@ if __name__ == "__main__":
     )
 
     ap.add_argument(
+        "-s",
+        "--static_dir",
+        required=False,
+        default=os.curdir,
+        type=str,
+        help="The dir from where serve /static content",
+    )
+
+    ap.add_argument(
+        "-t",
+        "--template_dir",
+        required=False,
+        default=os.path.join(os.curdir, "templates"),
+        type=str,
+        help="The dir where find index.html template",
+    )
+
+    ap.add_argument(
         "-c",
         "--config_path",
         required=False,
-        default=os.curdir,
+        default=os.path.join(os.curdir, "static"),
         type=str,
         help="The Path where store configuration and db",
     )
@@ -72,6 +90,11 @@ if __name__ == "__main__":
     if not database.check_migrations():
         sys.exit(1)  # error should already have been logged
     database.purge(365 * 2)  # @todo currently only purging old records at startup
+
+    app.template_folder = args["template_dir"]
+    app.static_folder = args["static_dir"]
+
+    # logging.info(pformat(app.config), app.static_folder, app.template_folder)
 
     if args["weather_location"] is not None:
         # logging.(pformat(args["weather_location"]))

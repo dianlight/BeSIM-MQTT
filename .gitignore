@@ -128,3 +128,8 @@ dmypy.json
 # Pyre type checker
 .pyre/
 besim.db
+app.py
+
+# Node
+node_modules
+dist
