@@ -553,5 +553,10 @@ class ProxyUdpServer(UdpServer):
                 "{:s} function took {:.3f} ms".format(ret, (time2 - time1) * 1000.0)
             )
             Database().log_traces(
-                "UDP", str(addr), ret, int((time2 - time1) * 1000.0), cret
+                source="UDP",
+                host=str(addr),
+                adapterMap=ret,
+                uri=ret,
+                elapsed=int((time2 - time1) * 1000.0),
+                response_status=cret,
             )

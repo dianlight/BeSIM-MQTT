@@ -16,7 +16,7 @@ class Singleton(type):
 
 class Database(metaclass=Singleton):
 
-    VERSION = 3
+    VERSION = 4
 
     def __init__(self, name: str = __name__, log=False) -> None:
         self.name: str = name
@@ -32,7 +32,7 @@ class Database(metaclass=Singleton):
         conn.run_sql(sql, log=self.log)
         sql = "create table if not exists besim_temperature(ts DATETIME, thermostat TEXT, temp NUMERIC, settemp NUMERIC, heating NUMERIC)"
         conn.run_sql(sql, log=self.log)
-        sql = "create table if not exists web_traces(ts DATETIME, source TEXT, host TEXT, uri TEXT, elapsed NUMERIC, response_status TEXT)"
+        sql = "create table if not exists web_traces(ts DATETIME, source TEXT, adapterMap TEXT, host TEXT, uri TEXT, elapsed NUMERIC, response_status TEXT)"
         conn.run_sql(sql, log=self.log)
         if closeit:
             conn.close(commit=True)
@@ -66,7 +66,9 @@ class Database(metaclass=Singleton):
                 logger.warning(
                     f"Database needs upgrading from version {user_version} to {self.VERSION}"
                 )
-                logger.error(f"Migration not yet implemented :(")
+                logger.error(
+                    "Migration not yet implemented :(. Drop all database and restart!"
+                )
                 success = False
         else:
             logger.error("Failed to get database version")
@@ -112,6 +114,7 @@ class Database(metaclass=Singleton):
         self,
         source: str,
         host: str,
+        adapterMap: str,
         uri: str,
         elapsed: int,
         response_status: str,
@@ -123,8 +126,8 @@ class Database(metaclass=Singleton):
         else:
             closeit = False
         now: str = datetime.now(timezone.utc).astimezone().isoformat()
-        sql = "insert into web_traces(ts, source, host, uri, elapsed, response_status) values (?,?,?,?,?,?)"
-        values = (now, source, host, uri, elapsed, response_status)
+        sql = "insert into web_traces(ts, source, adapterMap, host, uri, elapsed, response_status) values (?,?,?,?,?,?,?)"
+        values = (now, source, adapterMap, host, uri, elapsed, response_status)
         conn.run_sql(sql, values, log=self.log)
         if closeit:
             conn.close(commit=True)
@@ -187,3 +190,86 @@ class Database(metaclass=Singleton):
         if closeit:
             conn.close(commit=True)
         return rc
+
+    def get_calls(
+        self,
+        date_from=None,
+        date_to=None,
+        sort=None,
+        filter=None,
+        limit=200,
+        offset=0,
+        conn=None,
+    ):  # -> List[Any] | Any:
+        if date_from is None:
+            date_from = (
+                datetime.now(timezone.utc).astimezone() - timedelta(days=14)
+            ).isoformat()
+        if date_to is None:
+            date_to = datetime.now(timezone.utc).astimezone().isoformat()
+
+        if not conn:
+            conn = self.get_connection()
+            closeit = True
+        else:
+            closeit = False
+        sql = "select rowid,ts,source,adapterMap,host,uri,elapsed,response_status from web_traces where ts between ? and ? "
+        values = (date_from, date_to)
+        if filter:
+            filter_sql = str()
+            for key in filter:
+                filter_sql += f"and {key} like ? "
+                values += (f"%{filter[key]}%",)
+            sql += filter_sql
+
+        sqlcount = f"select count(*) as total from ({sql})"
+        sql += f" order by {sort}" if sort else ""
+        sql += f" LIMIT {offset},{limit}"
+        logger.debug((sql, sqlcount))
+        rcc = conn.run_sql(sqlcount, values, log=self.log)
+        rc = conn.run_sql(sql, values, log=self.log)
+        if closeit:
+            conn.close(commit=True)
+        return {"meta": rcc[0], "data": rc}
+
+    def get_calls_group(
+        self,
+        date_from=None,
+        date_to=None,
+        sort=None,
+        filter=None,
+        limit=200,
+        offset=0,
+        conn=None,
+    ):  # -> List[Any] | Any:
+        if date_from is None:
+            date_from = (
+                datetime.now(timezone.utc).astimezone() - timedelta(days=14)
+            ).isoformat()
+        if date_to is None:
+            date_to = datetime.now(timezone.utc).astimezone().isoformat()
+
+        if not conn:
+            conn = self.get_connection()
+            closeit = True
+        else:
+            closeit = False
+        sql = "select max(rowid) as rowId,count(*) as cardinal ,max(ts) as ts,source,adapterMap,host,avg(elapsed) as elapsed,response_status from web_traces where ts between ? and ? "
+        values = (date_from, date_to)
+        if filter:
+            filter_sql = str()
+            for key in filter:
+                filter_sql += f"and {key} like ? "
+                values += (f"%{filter[key]}%",)
+            sql += filter_sql
+
+        sql += " group by source,adapterMap,host,response_status "
+        sqlcount = f"select count(*) as total from ({sql})"
+        sql += f" order by {sort}" if sort else ""
+        sql += f" LIMIT {offset},{limit}"
+        logger.debug((sql, sqlcount))
+        rcc = conn.run_sql(sqlcount, values, log=self.log)
+        rc = conn.run_sql(sql, values, log=self.log)
+        if closeit:
+            conn.close(commit=True)
+        return {"meta": rcc[0], "data": rc}

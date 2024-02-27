@@ -1,7 +1,10 @@
 #
 # This is where we store the status of any connected peers/devices
 #
-Status = {"peers": {}, "devices": {}}
+from uuid import uuid4
+
+
+Status = {"peers": {}, "devices": {}, "token": str(uuid4())}
 
 
 def getStatus():

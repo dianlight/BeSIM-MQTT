@@ -6,10 +6,12 @@ import logging
 from wsgiref.types import StartResponse, WSGIEnvironment
 from werkzeug import datastructures
 import dns.resolver
-from flask import Flask, Request
+from flask import Flask, Request, json
 import http.client
 import re
 import typing as t
+from werkzeug.wsgi import ClosingIterator
+
 from database import Database
 import time
 
@@ -28,7 +30,7 @@ BEHAVIOUR = Enum(
 PROXY_URL_BEHAVIOUR = {
     r"/static.*": BEHAVIOUR.ONLY_LOCAL,
     r"[/|/index\.html]": BEHAVIOUR.ONLY_LOCAL,
-    r"/api/v1\.0/devices.*": BEHAVIOUR.ONLY_LOCAL,
+    r"/api/v1\.0/.*": BEHAVIOUR.ONLY_LOCAL,
     r"/fwUpgrade/PR06549/version\.txt": BEHAVIOUR.LOCAL_FIRST,
     r"/WifiBoxInterface_vokera/getWebTemperature\.php": BEHAVIOUR.REMOTE_FIRST,
 }
@@ -45,22 +47,26 @@ def timing(f):
             raise e
         finally:
             time2: float = time.time()
-            #  logging.info(pformat((args, kwargs, ret)))
+            logging.info(pformat((args, kwargs, ret)))
             logging.debug(
                 "{:s} function took {:.3f} ms".format(
-                    f.__name__, (time2 - time1) * 1000.0
+                    args[1]["RAW_URI"], (time2 - time1) * 1000.0
                 )
             )
+
+            response_status = (
+                args[1]["RESPONSE_STATUS"]
+                if "RESPONSE_STATUS" in args[1]
+                else pformat(ret)
+            )
+
             Database().log_traces(
-                args[1]["SERVER_PROTOCOL"],
-                args[1]["REMOTE_ADDR"],
-                f"{args[1]['REQUEST_METHOD']} {args[1]['RAW_URI']}",
-                int((time2 - time1) * 1000.0),
-                (
-                    args[1]["RESPONSE_STATUS"]
-                    if "RESPONSE_STATUS" in args[1]
-                    else pformat(ret)
-                ),
+                source=args[1]["SERVER_PROTOCOL"],
+                host=args[1]["REMOTE_ADDR"],
+                adapterMap=json.dumps(args[1]["REQUEST_ADAPTER_MAP"]),
+                uri=f"{args[1]['REQUEST_METHOD']} {args[1]['RAW_URI']}",
+                elapsed=int((time2 - time1) * 1000.0),
+                response_status=str(response_status),
             )
 
         return ret
@@ -89,6 +95,22 @@ class ProxyMiddleware(object):
         # for answer in self.upstream_resolver.query('google.com', "A"):
         #    logging.info(answer.to_text())
 
+    def check_path_exists(self, env: WSGIEnvironment) -> bool:
+        path = env["PATH_INFO"]
+        method = env["REQUEST_METHOD"]
+        try:
+            vreq = Request(env)
+            adapter = self.app.create_url_adapter(request=vreq)
+            if adapter is not None:
+                logging.debug(pformat(adapter.map))
+                env["REQUEST_ADAPTER_MAP"] = adapter.match(path, method)
+            else:
+                return False
+        except Exception as e:
+            logging.warning(e)
+            return False
+        return True
+
     @timing
     def __call__(
         self, env: WSGIEnvironment, resp: StartResponse
@@ -105,9 +127,19 @@ class ProxyMiddleware(object):
             )
             is not None
         ):
-            return self._app(
-                env, lambda status, headers, *args: resp(status, headers, *args)
+
+            self.check_path_exists(env)
+            logging.info(
+                f"{env['REMOTE_ADDR']} {env['REQUEST_METHOD']} {env['REQUEST_URI']} {BEHAVIOUR.ONLY_LOCAL.name}"
             )
+
+            def intercept_response_direct(
+                status: str, headers, *args
+            ):  # -> Callable[..., object]:
+                env["RESPONSE_STATUS"] = status
+                return resp(status, headers, *args)
+
+            return self._app(env, intercept_response_direct)
 
         def check_behaviour(path: str) -> BEHAVIOUR:
             for reg, bev in PROXY_URL_BEHAVIOUR.items():
@@ -141,21 +173,7 @@ class ProxyMiddleware(object):
 
         req_headers = datastructures.EnvironHeaders(env)
 
-        def check_path_exists(path: str, method: str) -> bool:
-            try:
-                vreq = Request(env)
-                adapter = self.app.create_url_adapter(request=vreq)
-                if adapter is not None:
-                    adapter.match(path, method)
-                else:
-                    return False
-            except Exception:
-                return False
-            return True
-
-        if behaviour == BEHAVIOUR.REMOTE_IF_MISSING and not check_path_exists(
-            env["REQUEST_URI"], env["REQUEST_METHOD"]
-        ):
+        if behaviour == BEHAVIOUR.REMOTE_IF_MISSING and not self.check_path_exists(env):
             logging.warn(
                 f"Method {env['REQUEST_METHOD']} {env['REQUEST_URI']} don't exist. Force ONLY_REMOTE"
             )
@@ -209,6 +227,7 @@ class ProxyMiddleware(object):
                 logging.debug(("RESPONSE_BODY", data))
                 return resp_int(data)
 
+            env["RESPONSE_STATUS"] = status
             logging.debug(pformat(("RESPONSE", status, headers, args)))
             return writer
 

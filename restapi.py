@@ -1,5 +1,8 @@
+from pprint import pformat
+import queue
 import token
-from flask import Flask, request
+from attr import field
+from flask import Flask, request, send_file
 from flask_restful import Api, Resource
 from flask_cors import CORS
 import json
@@ -139,7 +142,12 @@ def postBoilerRecords():
 @app.route("/")
 @app.route("/index.html")
 def index() -> str:
-    return render_template("index.html", token="981292187321973198")
+    return render_template("index.html", token=getStatus()["token"])
+
+
+@app.route("/favicon.ico")
+def favicon():
+    return send_file(os.path.join(app.static_folder, "favicon", "favicon.ico"))  # type: ignore
 
 
 #    app.config["static_path"] = args["docroot"]
@@ -340,9 +348,32 @@ class TemperatureHistory(Resource):
         )
 
 
-api.add_resource(
-    Devices, "/api/v1.0/devices", endpoint="devices", host="api.besmart-home.com"
-)
+class CallHistory(Resource):
+
+    @use_args(
+        {
+            "from": fields.Str(),
+            "to": fields.Str(),
+            "sort": fields.Str(),
+            "filter": fields.Str(),
+            "limit": fields.Int(),
+            "offset": fields.Int(),
+        },
+        location="query",
+    )
+    def get(self, query):
+        logger.debug(pformat(query))
+        return Database().get_calls_group(
+            date_from=query.get("from", None),
+            date_to=query.get("to", None),
+            sort=query.get("sort", "").replace(",", " "),
+            filter=json.loads(query.get("filter", {})),
+            limit=query.get("limit", 100),
+            offset=query.get("offset", 0),
+        )
+
+
+api.add_resource(Devices, "/api/v1.0/devices", endpoint="devices")
 api.add_resource(
     Device,
     "/api/v1.0/devices/<int:deviceid>",
@@ -530,6 +561,13 @@ api.add_resource(
     endpoint="history",
     host="api.besmart-home.com",
 )
+
+api.add_resource(
+    CallHistory,
+    "/api/v1.0/call/history",
+    endpoint="call_history",
+)
+
 
 # OpenTherm parameters
 for endpoint in [

@@ -22,7 +22,7 @@ if __name__ == "__main__":
 
     ap.add_argument(
         "-l",
-        "--logLevel",
+        "--log_level",
         required=False,
         default=logging.INFO,
         choices=dict(
@@ -52,7 +52,7 @@ if __name__ == "__main__":
         "-s",
         "--static_dir",
         required=False,
-        default=os.curdir,
+        default=os.path.join(os.curdir, "static"),
         type=str,
         help="The dir from where serve /static content",
     )
@@ -70,25 +70,36 @@ if __name__ == "__main__":
         "-c",
         "--config_path",
         required=False,
-        default=os.path.join(os.curdir, "static"),
+        default="/tmp",
         type=str,
         help="The Path where store configuration and db",
+    )
+
+    ap.add_argument(
+        "--devmode",
+        action=argparse.BooleanOptionalAction,
+        required=False,
+        default=False,
+        type=bool,
+        help="Start the Server with autoreaload feature",
     )
 
     args: dict[str, Any] = vars(ap.parse_args())
 
     fmt = "[%(asctime)s %(filename)s->%(funcName)s():%(lineno)s] %(levelname)s: %(message)s"
-    if args["logLevel"] == "TRACE":
-        args["logLevel"] = logging.DEBUG
-    logging.basicConfig(format=fmt, level=args["logLevel"])
-    coloredlogs.install(isatty=True, level=args["logLevel"])
+    if args["log_level"] == "TRACE":
+        args["log_level"] = logging.DEBUG
+    logging.basicConfig(format=fmt, level=args["log_level"])
+    coloredlogs.install(isatty=True, level=args["log_level"])
 
     database_name: str = os.getenv(
         "BESIM_DATABASE", os.path.join(args["config_path"], "besim.db")
     )
     database = Database(name=database_name)
     if not database.check_migrations():
-        sys.exit(1)  # error should already have been logged
+        os.remove(database_name)
+        database.create_tables()
+
     database.purge(365 * 2)  # @todo currently only purging old records at startup
 
     app.template_folder = args["template_dir"]
@@ -122,5 +133,9 @@ if __name__ == "__main__":
     # app.logger.setLevel(logging.WARN)
     logging.getLogger("werkzeug").setLevel(logging.WARN)
     app.run(
-        debug=debug, host=host, port=int(port), use_debugger=True, use_reloader=False
+        debug=debug,
+        host=host,
+        port=int(port),
+        use_debugger=True,
+        use_reloader=args["devmode"],
     )
