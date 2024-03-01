@@ -104,7 +104,6 @@ if __name__ == "__main__":
 
     app.template_folder = args["template_dir"]
     app.static_folder = args["static_dir"]
-    app.static_url_path = "/assets"
 
     # logging.info(pformat(app.config), app.static_folder, app.template_folder)
 
