@@ -2,7 +2,7 @@ from pprint import pformat
 import queue
 import token
 from attr import field
-from flask import Flask, request, send_file
+from flask import Flask, redirect, request, send_file
 from flask_restful import Api, Resource
 from flask_cors import CORS
 import json
@@ -33,7 +33,13 @@ class SetEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, o)
 
 
-app = Flask("BeSim", subdomain_matching=True, host_matching=False, static_host=None)
+app = Flask(
+    "BeSim",
+    subdomain_matching=True,
+    host_matching=False,
+    static_host=None,
+    # static_url_path="/assets",
+)
 # dashboard.bind(app)
 CORS(app)
 api = Api(app)
@@ -367,7 +373,7 @@ class CallHistory(Resource):
             date_from=query.get("from", None),
             date_to=query.get("to", None),
             sort=query.get("sort", "").replace(",", " "),
-            filter=json.loads(query.get("filter", {})),
+            filter=json.loads(query.get("filter", "{}")),
             limit=query.get("limit", 100),
             offset=query.get("offset", 0),
         )

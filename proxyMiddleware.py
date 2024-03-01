@@ -63,7 +63,11 @@ def timing(f):
             Database().log_traces(
                 source=args[1]["SERVER_PROTOCOL"],
                 host=args[1]["REMOTE_ADDR"],
-                adapterMap=json.dumps(args[1]["REQUEST_ADAPTER_MAP"]),
+                adapterMap=(
+                    json.dumps(args[1]["REQUEST_ADAPTER_MAP"])
+                    if "REQUEST_ADAPTER_MAP" in args[1]
+                    else "NOT FOUND"
+                ),
                 uri=f"{args[1]['REQUEST_METHOD']} {args[1]['RAW_URI']}",
                 elapsed=int((time2 - time1) * 1000.0),
                 response_status=str(response_status),
