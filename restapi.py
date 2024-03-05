@@ -379,6 +379,39 @@ class CallHistory(Resource):
         )
 
 
+class UnknownUDP(Resource):
+    @use_args(
+        {
+            "from": fields.Str(),
+            "to": fields.Str(),
+        },
+        location="query",
+    )
+    def get(self, query):
+        logger.debug(pformat(query))
+        return Database().get_unknown_udp(
+            date_from=query.get("from", None),
+            date_to=query.get("to", None),
+        )
+
+
+class UnknownAPI(Resource):
+
+    @use_args(
+        {
+            "from": fields.Str(),
+            "to": fields.Str(),
+        },
+        location="query",
+    )
+    def get(self, query):
+        logger.debug(pformat(query))
+        return Database().get_unknown_api(
+            date_from=query.get("from", None),
+            date_to=query.get("to", None),
+        )
+
+
 api.add_resource(Devices, "/api/v1.0/devices", endpoint="devices")
 api.add_resource(
     Device,
@@ -572,6 +605,18 @@ api.add_resource(
     CallHistory,
     "/api/v1.0/call/history",
     endpoint="call_history",
+)
+
+api.add_resource(
+    UnknownUDP,
+    "/api/v1.0/call/unknown/udp",
+    endpoint="call_unknown_udp",
+)
+
+api.add_resource(
+    UnknownAPI,
+    "/api/v1.0/call/unknown/api",
+    endpoint="call_unknown_api",
 )
 
 

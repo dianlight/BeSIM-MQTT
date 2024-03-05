@@ -10,7 +10,6 @@ from flask import Flask, Request, json
 import http.client
 import re
 import typing as t
-from werkzeug.wsgi import ClosingIterator
 
 from database import Database
 import time
@@ -28,11 +27,11 @@ BEHAVIOUR = Enum(
 
 """ Standard Behaviour is REMOTE_IF_MISSING """
 PROXY_URL_BEHAVIOUR = {
-    r"/static.*": BEHAVIOUR.ONLY_LOCAL,
-    r"[/|/index\.html]": BEHAVIOUR.ONLY_LOCAL,
-    r"/api/v1\.0/.*": BEHAVIOUR.ONLY_LOCAL,
-    r"/fwUpgrade/PR06549/version\.txt": BEHAVIOUR.LOCAL_FIRST,
-    r"/WifiBoxInterface_vokera/getWebTemperature\.php": BEHAVIOUR.REMOTE_FIRST,
+    r"^/static.*": BEHAVIOUR.ONLY_LOCAL,
+    r"^[/|/index\.html]$": BEHAVIOUR.ONLY_LOCAL,
+    r"^/api/v1\.0/.*": BEHAVIOUR.ONLY_LOCAL,
+    r"^/fwUpgrade/PR06549/version\.txt": BEHAVIOUR.LOCAL_FIRST,
+    r"^/WifiBoxInterface_vokera/getWebTemperature\.php": BEHAVIOUR.REMOTE_FIRST,
 }
 
 
@@ -106,20 +105,21 @@ class ProxyMiddleware(object):
             vreq = Request(env)
             adapter = self.app.create_url_adapter(request=vreq)
             if adapter is not None:
-                logging.debug(pformat(adapter.map))
+                # logging.debug(pformat(adapter.map))
                 env["REQUEST_ADAPTER_MAP"] = adapter.match(path, method)
             else:
                 return False
         except Exception as e:
-            logging.warning(e)
+            logging.debug(e)
             return False
+        logging.debug(f"Match Rule {pformat(env['REQUEST_ADAPTER_MAP'])}")
         return True
 
     @timing
     def __call__(
         self, env: WSGIEnvironment, resp: StartResponse
     ) -> t.Iterable[bytes]:  # sourcery skip: identity-comprehension
-        http_host = env.get("HTTP_HOST")
+        http_host: str | None = env.get("HTTP_HOST")
         if http_host is None:
             raise ValueError("Internal server error. HTTP_HOST env is null!")
 
@@ -147,16 +147,16 @@ class ProxyMiddleware(object):
 
         def check_behaviour(path: str) -> BEHAVIOUR:
             for reg, bev in PROXY_URL_BEHAVIOUR.items():
-                logging.debug(pformat((reg, bev)))
                 if re.match(reg, path, re.IGNORECASE) is not None:
+                    logging.debug(f"{path} Match {pformat((reg, bev))}")
                     return bev
             return BEHAVIOUR.REMOTE_IF_MISSING
 
         # behaviour = PROXY_URL_BEHAVIOUR[req.path] if req.path in PROXY_URL_BEHAVIOUR else BEHAVIOUR.REMOTE_IF_MISSING
         behaviour: BEHAVIOUR = check_behaviour(env["REQUEST_URI"])
-        logging.debug(f"Behaviour: {behaviour}")
+        logging.debug(f"Working on behaviour: {behaviour}")
 
-        if (
+        if behaviour != BEHAVIOUR.ONLY_LOCAL and (
             http_host not in self.http_connection
             or self.http_connection[http_host] is None
         ):
@@ -181,6 +181,7 @@ class ProxyMiddleware(object):
             logging.warn(
                 f"Method {env['REQUEST_METHOD']} {env['REQUEST_URI']} don't exist. Force ONLY_REMOTE"
             )
+            env["MISSING_API"] = True
             behaviour = BEHAVIOUR.ONLY_REMOTE
         elif behaviour == BEHAVIOUR.REMOTE_IF_MISSING:
             behaviour = BEHAVIOUR.LOCAL_FIRST
@@ -217,7 +218,9 @@ class ProxyMiddleware(object):
                 http_host
             ].getresponse()
             body_org: str = "".join([chr(b) for b in resp_org.read()])
-            logging.debug(pformat(("PROXY_RESPONSE", resp_org.headers, body_org)))
+            logging.debug(
+                pformat(("PROXY_RESPONSE", resp_org.headers.items(), body_org))
+            )
 
         def intercept_response(
             status: str, headers, *args
@@ -225,6 +228,19 @@ class ProxyMiddleware(object):
             env["RESPONSE_STATUS"] = status
             if behaviour in [BEHAVIOUR.REMOTE_FIRST, BEHAVIOUR.ONLY_REMOTE]:
                 headers = resp_org.headers.items()
+                status = str(resp_org.status)
+                if "MISSING_API" in env:
+                    Database().log_unknown_api(
+                        env["REMOTE_ADDR"],
+                        env["HTTP_HOST"],
+                        env["REQUEST_METHOD"],
+                        env["REQUEST_URI"],
+                        pformat({x: y for x, y in req_headers.items()}),
+                        proxy_body,
+                        str(resp_org.status),
+                        body_org,
+                    )
+
             resp_int = resp(status, headers, *args)
 
             def writer(data) -> object:

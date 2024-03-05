@@ -1,4 +1,5 @@
 import logging
+from pprint import pformat
 
 # from pprint import pformat
 import hexdump
@@ -60,7 +61,7 @@ class ProxyUdpServer(UdpServer):
             logging.info(
                 f"Cloud {MsgId(wrapper.msgType).name=} {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=} {lastseen=}"
             )
-        elif wrapper.msgType == MsgId.PROGRAM:
+        elif wrapper.msgType == MsgId.SET_ADVANCE:  # MsgId.PROGRAM:
             """
             [2024-02-21 18:01:53,113 udpserver.py->run():449] INFO: From ('104.46.56.16', 6199) 54 bytes : FA D4 2A 00 FF FF FF FF 0A 0F 1E 00 FF 00 00 00 AA F2 8D 23 A6 27 43 04 06 00 00 00 00 00 00 00 11 21 22 11 11 11 11 11 11 11 11 11 11 11 11 11 11 00 63 D7 2D DF
             [2024-02-21 18:01:53,114 proxyUdpServer.py->handleCloudMsg():52] INFO: Cloud: seq=4294967295 msgType=10(a) synclost=0 downlink=1 response=1 write=1 flags=f length=42 msgLen=38
@@ -516,6 +517,12 @@ class ProxyUdpServer(UdpServer):
         else:
             logging.warn(
                 f"Cloud Unhandled message {MsgId(wrapper.msgType).name=} {wrapper.msgType=} len:{msgLen=}"
+            )
+            Database().log_unknown_udp(
+                pformat(addr),
+                MsgId(wrapper.msgType).name,
+                wrapper.msgType if wrapper.msgType is not None else -1,
+                payload,
             )
             unpack.setOffset(msgLen)  # To skip false inernal error
 

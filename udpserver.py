@@ -347,9 +347,9 @@ class Frame:
 
 class Wrapper:
     def __init__(self, payload=None, from_cloud=False):
-        self.payload = payload
-        self.from_cloud = from_cloud
-        self.msgType = None
+        self.payload: bytes | None = payload
+        self.from_cloud: bool = from_cloud
+        self.msgType: int | None = None
         self.downlink = None
         self.response = None
         self.write = None
@@ -394,6 +394,8 @@ class Wrapper:
         return unpack.subbuf(msgLen)
 
     def encodeDL(self, msgType, response, write):
+        if self.payload is None:
+            raise Exception("No Payload to encode!")
         self.msgType = msgType
         self.downlink = 1
         self.response = response

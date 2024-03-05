@@ -16,7 +16,7 @@ class Singleton(type):
 
 class Database(metaclass=Singleton):
 
-    VERSION = 4
+    VERSION = 5
 
     def __init__(self, name: str = __name__, log=False) -> None:
         self.name: str = name
@@ -33,6 +33,10 @@ class Database(metaclass=Singleton):
         sql = "create table if not exists besim_temperature(ts DATETIME, thermostat TEXT, temp NUMERIC, settemp NUMERIC, heating NUMERIC)"
         conn.run_sql(sql, log=self.log)
         sql = "create table if not exists web_traces(ts DATETIME, source TEXT, adapterMap TEXT, host TEXT, uri TEXT, elapsed NUMERIC, response_status TEXT)"
+        conn.run_sql(sql, log=self.log)
+        sql = "create table if not exists unknown_udp(ts DATETIME, source TEXT, type TEXT, code NUMETIC, payload BLOB)"
+        conn.run_sql(sql, log=self.log)
+        sql = "create table if not exists unknown_api(ts DATETIME, source TEXT, host TEXT, method TEXT, uri TEXT, headers TEXT, body BLOB, rm_resp_code TEXT, rm_res_body TEXT)"
         conn.run_sql(sql, log=self.log)
         if closeit:
             conn.close(commit=True)
@@ -132,6 +136,60 @@ class Database(metaclass=Singleton):
         if closeit:
             conn.close(commit=True)
 
+    def log_unknown_udp(
+        self,
+        source: str,
+        type: str,
+        code: int,
+        payload: bytes,
+        conn=None,
+    ) -> None:
+        if not conn:
+            conn = self.get_connection()
+            closeit = True
+        else:
+            closeit = False
+        now: str = datetime.now(timezone.utc).astimezone().isoformat()
+        sql = "insert into unknown_udp(ts, source, type, code, payload) values (?,?,?,?,?)"
+        values = (now, source, type, code, payload)
+        conn.run_sql(sql, values, log=self.log)
+        if closeit:
+            conn.close(commit=True)
+
+    def log_unknown_api(
+        self,
+        source: str,
+        host: str,
+        method: str,
+        uri: str,
+        headers,
+        body: bytes,
+        rm_resp_code: str,
+        rm_res_body: str,
+        conn=None,
+    ) -> None:
+        if not conn:
+            conn = self.get_connection()
+            closeit = True
+        else:
+            closeit = False
+        now: str = datetime.now(timezone.utc).astimezone().isoformat()
+        sql = "insert into unknown_api(ts, source, host, method, uri, headers, body, rm_resp_code, rm_res_body) values (?,?,?,?,?,?,?,?,?)"
+        values = (
+            now,
+            source,
+            host,
+            method,
+            uri,
+            headers,
+            body,
+            rm_resp_code,
+            rm_res_body,
+        )
+        conn.run_sql(sql, values, log=self.log)
+        if closeit:
+            conn.close(commit=True)
+
     def purge(self, daysToKeep, conn=None):
         if not conn:
             conn = self.get_connection()
@@ -147,6 +205,10 @@ class Database(metaclass=Singleton):
         sql: str = f"delete from besim_temperature where ts < '{limit.isoformat()}'"
         conn.run_sql(sql, log=self.log)
         sql: str = f"delete from web_traces where ts < '{limit.isoformat()}'"
+        conn.run_sql(sql, log=self.log)
+        sql: str = f"delete from unknown_udp where ts < '{limit.isoformat()}'"
+        conn.run_sql(sql, log=self.log)
+        sql: str = f"delete from unknown_api where ts < '{limit.isoformat()}'"
         conn.run_sql(sql, log=self.log)
         if closeit:
             conn.close(commit=True)
@@ -273,3 +335,43 @@ class Database(metaclass=Singleton):
         if closeit:
             conn.close(commit=True)
         return {"meta": rcc[0], "data": rc}
+
+    def get_unknown_udp(self, date_from=None, date_to=None, conn=None):
+        if date_from is None:
+            date_from = (
+                datetime.now(timezone.utc).astimezone() - timedelta(days=14)
+            ).isoformat()
+        if date_to is None:
+            date_to = datetime.now(timezone.utc).astimezone().isoformat()
+
+        if not conn:
+            conn = self.get_connection()
+            closeit = True
+        else:
+            closeit = False
+        sql = "select max(ts) as ts, source, type, code, hex(payload) as payload from unknown_udp where ts between ? and ? group by source, type, code, payload"
+        values = (date_from, date_to)
+        rc = conn.run_sql(sql, values, log=self.log)
+        if closeit:
+            conn.close(commit=True)
+        return rc
+
+    def get_unknown_api(self, date_from=None, date_to=None, conn=None):
+        if date_from is None:
+            date_from = (
+                datetime.now(timezone.utc).astimezone() - timedelta(days=14)
+            ).isoformat()
+        if date_to is None:
+            date_to = datetime.now(timezone.utc).astimezone().isoformat()
+
+        if not conn:
+            conn = self.get_connection()
+            closeit = True
+        else:
+            closeit = False
+        sql = "select max(ts) as ts, source, host, method, uri, headers, hex(body) as body, rm_resp_code, rm_res_body from unknown_api where ts between ? and ? group by source, host, method, uri, headers, body, rm_resp_code, rm_res_body"
+        values = (date_from, date_to)
+        rc = conn.run_sql(sql, values, log=self.log)
+        if closeit:
+            conn.close(commit=True)
+        return rc
