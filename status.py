@@ -7,6 +7,11 @@ from uuid import uuid4
 
 
 Status = {"peers": {}, "devices": {}, "token": str(uuid4())}
+# Status = {
+#    "peers": {("192.168.0.105", 6199): {"devices": {596505258}, "seq": 1306}},
+#    "devices": {},
+#    "token": str(uuid4()),
+# }
 
 
 def getStatus():
@@ -17,7 +22,9 @@ def getPeerFromDeviceId(deviceId):
     value = dict(
         filter(lambda pair: deviceId in pair[1]["devices"], Status["peers"].items())
     ).keys()
-    logging.info(pformat((Status, value, len(value))))
+    logging.info(
+        pformat((Status, value, len(value), list(value)[0] if len(value) > 0 else None))
+    )
     return list(value)[0] if len(value) > 0 else None
 
 

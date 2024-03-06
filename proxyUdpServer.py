@@ -169,8 +169,8 @@ class ProxyUdpServer(UdpServer):
                 unpack.subbuf(msgLen - unpack.getOffset()),
             )
 
-        if forward and (paddr := getPeerFromDeviceId(deviceid) is not None):
-            logging.info(pformat(paddr))
+        if forward and (paddr := getPeerFromDeviceId(deviceid)) is not None:
+            #logging.info(pformat(paddr))
             self.send_ENCODED_FRAME(paddr, payload, response=wrapper.response, write=wrapper.write)  # type: ignore
 
         return MsgId(wrapper.msgType).name
