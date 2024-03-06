@@ -154,7 +154,7 @@ class Database(metaclass=Singleton):
         else:
             closeit = False
         now: str = datetime.now(timezone.utc).astimezone().isoformat()
-        sql = "insert into unknown_udp(ts, source, type, code, payload, unparsed_payload) values (?,?,?,?,?,?,?)"
+        sql = "insert into unknown_udp(ts, source, type, code, payload, unparsed_payload, raw_data) values (?,?,?,?,?,?,?)"
         values = (now, source, type, code, payload, unparsed_payload, raw_data)
         conn.run_sql(sql, values, log=self.log)
         if closeit:

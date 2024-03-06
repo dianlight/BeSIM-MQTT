@@ -67,38 +67,45 @@ class ProxyUdpServer(UdpServer):
 
         unpack = Unpacker(payload)
 
-        if wrapper.msgType == MsgId.STATUS:
+        forward = False
+
+        if wrapper.msgType == MsgId.STATUS and msgLen == 12:
             cseq, unk1, unk2, deviceid, lastseen = unpack("<BBHII")  # 1 1 2 4 4
             logging.info(
                 f"Cloud {MsgId(wrapper.msgType).name=} {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=} {lastseen=}"
             )
-        elif wrapper.msgType == MsgId.DEVICE_TIME:
+            forward = True
+        elif wrapper.msgType == MsgId.DEVICE_TIME and msgLen == 16:
             #  """PAYLOAD: 15000000AAF28D23"""
-            cseq, unk1, unk2, deviceid, unk3, unk4 = unpack("<BBHIII")
+            cseq, unk1, unk2, deviceid, unk3, unk4 = unpack("<BBHIII") # 1 1 2 4 4 4
             logging.info(
                 f"Cloud {MsgId(wrapper.msgType).name=} {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=} {unk3=:x} {unk4=:x}"
             )
-            # device = getDeviceStatus(deviceid)
-            self.send_ENCODED_FRAME(self.addr, payload, response=wrapper.response, write=wrapper.write)  # type: ignore
-        elif wrapper.msgType == MsgId.GET_PROG:
+            forward = True
+        elif wrapper.msgType == MsgId.DEVICE_TIME and msgLen == 8:
+            #  """PAYLOAD: 15000000AAF28D23"""
+            cseq, unk1, unk2, deviceid = unpack("<BBHI")  # 1 1 2 4
+            logging.info(
+                f"Cloud {MsgId(wrapper.msgType).name=} {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=}"
+            )
+            forward = True
+        elif wrapper.msgType == MsgId.GET_PROG and msgLen == 16:
             #  """PAYLOAD: 11000000AAF28D23A6274304E00F8000"""
             cseq, unk1, unk2, deviceid, room, unk3 = unpack("<BBHIII")
             logging.info(
                 f"Cloud {MsgId(wrapper.msgType).name=} {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=} {room=:x} {unk3=:x}"
             )
-            self.send_ENCODED_FRAME(self.addr, payload, response=wrapper.response, write=wrapper.write)  # type: ignore
-        #     """
-        #     """
-        elif wrapper.msgType in [MsgId.REFRESH, MsgId.SWVERSION]:
+            forward = True
+        elif wrapper.msgType in [MsgId.REFRESH, MsgId.SWVERSION] and msgLen == 8:
             #     """ PAYLOAD: 14000000AAF28D23  """ REFRESH
             #     """ PAYLOAD: 18000000AAF28D23  """ SWVERSION
             #     """ PAYLOAD: FF000000AAF28D2330363534393138303131313032 """ SWVERSION?
-            cseq, unk1, unk2, deviceid = unpack("<BBHI")
+            cseq, unk1, unk2, deviceid = unpack("<BBHI") # 1 1 2 4
             logging.info(
                 f"Cloud {MsgId(wrapper.msgType).name=} {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=}"
             )
-            self.send_ENCODED_FRAME(self.addr, payload, response=wrapper.response, write=wrapper.write)  # type: ignore
-        elif wrapper.msgType == MsgId.PROGRAM:
+            forward = True
+        elif wrapper.msgType == MsgId.PROGRAM and msgLen == 38:
             """
             [2024-02-21 18:01:53,113 udpserver.py->run():449] INFO: From ('104.46.56.16', 6199) 54 bytes : FA D4 2A 00 FF FF FF FF 0A 0F 1E 00 FF 00 00 00 AA F2 8D 23 A6 27 43 04 06 00 00 00 00 00 00 00 11 21 22 11 11 11 11 11 11 11 11 11 11 11 11 11 11 00 63 D7 2D DF
             [2024-02-21 18:01:53,114 proxyUdpServer.py->handleCloudMsg():52] INFO: Cloud: seq=4294967295 msgType=10(a) synclost=0 downlink=1 response=1 write=1 flags=f length=42 msgLen=38
@@ -113,10 +120,8 @@ class ProxyUdpServer(UdpServer):
             roomStatus = getRoomStatus(deviceid, room)
             roomStatus["days"][day] = prog
 
-            if paddr := getPeerFromDeviceId(deviceid) is not None:
-                logging.debug(pformat(paddr))
-                self.send_ENCODED_FRAME(paddr, payload, response=wrapper.response, write=wrapper.write)  # type: ignore
-        elif wrapper.msgType == MsgId.PROG_END:
+            forward = True
+        elif wrapper.msgType == MsgId.PROG_END and msgLen == 14:
             """
             [2024-02-21 18:01:53,148 udpserver.py->run():449] INFO: From ('104.46.56.16', 6199) 30 bytes : FA D4 12 00 FF FF FF FF 2A 0F 06 00 FF 00 00 00 AA F2 8D 23 A6 27 43 04 14 0A D1 BF 2D DF
             [2024-02-21 18:01:53,149 proxyUdpServer.py->handleCloudMsg():52] INFO: Cloud: seq=4294967295 msgType=42(2a) synclost=0 downlink=1 response=1 write=1 flags=f length=18 msgLen=14
@@ -126,41 +131,29 @@ class ProxyUdpServer(UdpServer):
             logging.info(
                 f"Cloud {MsgId(wrapper.msgType).name=} {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=} {unk3=}"
             )
-            self.send_ENCODED_FRAME(self.addr, payload, response=wrapper.response, write=wrapper.write)  # type: ignore
-        elif wrapper.msgType == MsgId.PING:
-            cseq, unk1, unk2, deviceid, unk3 = unpack("<BBHIH")
+            forward = True
+        elif wrapper.msgType == MsgId.PING and msgLen == 10:
+            cseq, unk1, unk2, deviceid, unk3 = unpack("<BBHIH") # 1 1 2 4 2
 
             logging.info(
                 f"Cloud {MsgId(wrapper.msgType).name=} {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=} {unk3=}"
             )
 
-            if cseq != UNUSED_CSEQ:
-                logging.warn(f"Unexpected {cseq=}")
-
-            if unk1 != 0x2:
-                logging.warn(f"Unexpected {unk1=:x}")
-
-            # on uplink unk2 is usually 4, but can be zero (when out of sync?)
-            if unk2 != 4 and unk2 != 0:
-                logging.warn(f"Unexpected {unk2=:x}")
-
-            if unk3 != 1:
-                logging.warn(f"Unexpected {unk3=:x}")
-
             # Send a DL PING message
-            self.send_PING(addr, deviceid, response=0)
+            self.send_PING(addr, deviceid, response=1)
         else:
             logging.warn(
                 f"Cloud Unhandled message {MsgId(wrapper.msgType).name=} {wrapper.msgType=} len:{msgLen=}"
             )
             Database().log_unknown_udp(
-                pformat(addr),
+                str(addr[0]),
                 MsgId(wrapper.msgType).name,
                 wrapper.msgType if wrapper.msgType is not None else -1,
                 data,
                 payload,
             )
-            unpack.setOffset(msgLen)  # To skip false inernal error
+            unpack.setOffset(msgLen)  # To skip false inernal error          
+            forward = True
 
         if unpack.getOffset() != msgLen:
             # Check we have consumed the complete message we received
@@ -168,13 +161,17 @@ class ProxyUdpServer(UdpServer):
                 f"Cloud Incomplete Message Read - Internal error offset={unpack.getOffset()} {msgLen=}"
             )
             Database().log_unknown_udp(
-                pformat(addr),
+                str(addr[0]),
                 MsgId(wrapper.msgType).name,
                 wrapper.msgType if wrapper.msgType is not None else -1,
                 data,
                 payload,
                 unpack.subbuf(msgLen - unpack.getOffset()),
             )
+
+        if forward and (paddr := getPeerFromDeviceId(deviceid) is not None):
+            logging.info(pformat(paddr))
+            self.send_ENCODED_FRAME(paddr, payload, response=wrapper.response, write=wrapper.write)  # type: ignore
 
         return MsgId(wrapper.msgType).name
 
@@ -184,7 +181,7 @@ class ProxyUdpServer(UdpServer):
             return
         time1: float = time.time()
         cret = "OK"
-        ret = hexdump.dump(data)
+        ret = hexdump.dump(data, sep="")
         try:
             if addr == self.cloud_addr or self.knocks >= 3:
                 self.knocks = 0
@@ -192,7 +189,7 @@ class ProxyUdpServer(UdpServer):
                 return ret
             if not self.debugmode:
                 logging.debug(
-                    f"Cloud replicate message {len(data)} bytes : {hexdump.dump(data)} from {self.addr} to {self.cloud_addr}"
+                    f"Cloud replicate message {len(data)} bytes : {hexdump.dump(data, sep="")} from {self.addr} to {self.cloud_addr}"
                 )
                 self.sock.sendto(data, self.cloud_addr)
             ret = super().handleMsg(data, addr)
@@ -208,7 +205,7 @@ class ProxyUdpServer(UdpServer):
             )
             Database().log_traces(
                 source="UDP",
-                host=str(addr),
+                host=str(addr[0]),
                 adapterMap=ret,
                 uri=ret,
                 elapsed=int((time2 - time1) * 1000.0),

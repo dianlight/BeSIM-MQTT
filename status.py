@@ -17,8 +17,8 @@ def getPeerFromDeviceId(deviceId):
     value = dict(
         filter(lambda pair: deviceId in pair[1]["devices"], Status["peers"].items())
     ).keys()
-    logging.debug(pformat((Status, value, len(value))))
-    return next(iter(value)) if len(value) > 0 else None
+    logging.info(pformat((Status, value, len(value))))
+    return list(value)[0] if len(value) > 0 else None
 
 
 def getPeerStatus(addr):

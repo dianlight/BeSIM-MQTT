@@ -133,7 +133,7 @@ class ProxyMiddleware(object):
         ):
 
             self.check_path_exists(env)
-            logging.info(
+            logging.debug(
                 f"{env['REMOTE_ADDR']} {env['REQUEST_METHOD']} {env['REQUEST_URI']} {BEHAVIOUR.ONLY_LOCAL.name}"
             )
 
