@@ -1,5 +1,6 @@
 import argparse
 from ast import arg
+from fileinput import filename
 import logging
 from pprint import pformat
 from collections import Counter
@@ -86,11 +87,27 @@ if __name__ == "__main__":
 
     args: dict[str, Any] = vars(ap.parse_args())
 
-    fmt = "[%(asctime)s %(filename)s->%(funcName)s():%(lineno)s] %(levelname)s: %(message)s"
+    fmt = "[%(asctime)s %(filename)s->%(funcName)s():%(lineno)d] %(levelname)s: %(message)s"
     if args["log_level"] == "TRACE":
         args["log_level"] = logging.DEBUG
     logging.basicConfig(format=fmt, level=args["log_level"])
-    coloredlogs.install(isatty=True, level=args["log_level"])
+    coloredlogs.install(
+        isatty=True,
+        level=args["log_level"],
+        # fmt="%(levelname)s %(asctime)s %(module)s[%(lineno)d] %(message)s",
+        fmt=fmt,
+        field_styles=dict(
+            asctime=dict(color="green"),
+            hostname=dict(color="magenta"),
+            levelname=dict(color="black", bold=True),
+            name=dict(color="blue"),
+            programname=dict(color="cyan"),
+            username=dict(color="yellow"),
+            filename=dict(color="blue"),
+            lineno=dict(color="green", bold=True),
+        ),
+        level_styles=coloredlogs.DEFAULT_LEVEL_STYLES,
+    )
 
     database_name: str = os.getenv(
         "BESIM_DATABASE", os.path.join(args["config_path"], "besim.db")
@@ -115,7 +132,9 @@ if __name__ == "__main__":
 
     # udpServer = UdpServer(("", 6199))
     if args["proxy_mode"] is not None:
-        udpServer = ProxyUdpServer(("", 6199), args["proxy_mode"])
+        udpServer = ProxyUdpServer(
+            ("", 6199), args["proxy_mode"], debugmode=args["devmode"]
+        )
     else:
         udpServer = UdpServer(("", 6199))
     udpServer.start()
