@@ -1,4 +1,6 @@
 import logging
+
+from numpy import byte
 from databaseConnection import DatabaseType, DatabaseConnection
 from datetime import datetime, timezone, timedelta
 
@@ -16,7 +18,7 @@ class Singleton(type):
 
 class Database(metaclass=Singleton):
 
-    VERSION = 5
+    VERSION = 7
 
     def __init__(self, name: str = __name__, log=False) -> None:
         self.name: str = name
@@ -34,7 +36,7 @@ class Database(metaclass=Singleton):
         conn.run_sql(sql, log=self.log)
         sql = "create table if not exists web_traces(ts DATETIME, source TEXT, adapterMap TEXT, host TEXT, uri TEXT, elapsed NUMERIC, response_status TEXT)"
         conn.run_sql(sql, log=self.log)
-        sql = "create table if not exists unknown_udp(ts DATETIME, source TEXT, type TEXT, code NUMETIC, payload BLOB)"
+        sql = "create table if not exists unknown_udp(ts DATETIME, source TEXT, type TEXT, code NUMETIC, payload BLOB, unparsed_payload BLOB, raw_data BLOB)"
         conn.run_sql(sql, log=self.log)
         sql = "create table if not exists unknown_api(ts DATETIME, source TEXT, host TEXT, method TEXT, uri TEXT, headers TEXT, body BLOB, rm_resp_code TEXT, rm_res_body TEXT)"
         conn.run_sql(sql, log=self.log)
@@ -141,7 +143,9 @@ class Database(metaclass=Singleton):
         source: str,
         type: str,
         code: int,
+        raw_data: bytes,
         payload: bytes,
+        unparsed_payload: bytes = bytes([]),
         conn=None,
     ) -> None:
         if not conn:
@@ -150,8 +154,8 @@ class Database(metaclass=Singleton):
         else:
             closeit = False
         now: str = datetime.now(timezone.utc).astimezone().isoformat()
-        sql = "insert into unknown_udp(ts, source, type, code, payload) values (?,?,?,?,?)"
-        values = (now, source, type, code, payload)
+        sql = "insert into unknown_udp(ts, source, type, code, payload, unparsed_payload) values (?,?,?,?,?,?,?)"
+        values = (now, source, type, code, payload, unparsed_payload, raw_data)
         conn.run_sql(sql, values, log=self.log)
         if closeit:
             conn.close(commit=True)
@@ -329,7 +333,7 @@ class Database(metaclass=Singleton):
         sqlcount = f"select count(*) as total from ({sql})"
         sql += f" order by {sort}" if sort else ""
         sql += f" LIMIT {offset},{limit}"
-        logger.debug((sql, sqlcount))
+        #  logger.debug((sql, sqlcount))
         rcc = conn.run_sql(sqlcount, values, log=self.log)
         rc = conn.run_sql(sql, values, log=self.log)
         if closeit:
@@ -349,7 +353,7 @@ class Database(metaclass=Singleton):
             closeit = True
         else:
             closeit = False
-        sql = "select max(ts) as ts, source, type, code, hex(payload) as payload from unknown_udp where ts between ? and ? group by source, type, code, payload"
+        sql = "select count(*) as count, max(ts) as ts, source, type, code, hex(payload) as payload, hex(unparsed_payload) as unparsed_payload, hex(raw_data) as raw_data from unknown_udp where ts between ? and ? group by source, type, code, payload, unparsed_payload, raw_data"
         values = (date_from, date_to)
         rc = conn.run_sql(sql, values, log=self.log)
         if closeit:
@@ -369,7 +373,7 @@ class Database(metaclass=Singleton):
             closeit = True
         else:
             closeit = False
-        sql = "select max(ts) as ts, source, host, method, uri, headers, hex(body) as body, rm_resp_code, rm_res_body from unknown_api where ts between ? and ? group by source, host, method, uri, headers, body, rm_resp_code, rm_res_body"
+        sql = "select count(*) as count, max(ts) as ts, source, host, method, uri, headers, hex(body) as body, rm_resp_code, rm_res_body from unknown_api where ts between ? and ? group by source, host, method, uri, headers, body, rm_resp_code, rm_res_body"
         values = (date_from, date_to)
         rc = conn.run_sql(sql, values, log=self.log)
         if closeit:

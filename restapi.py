@@ -368,7 +368,7 @@ class CallHistory(Resource):
         location="query",
     )
     def get(self, query):
-        logger.debug(pformat(query))
+        #  logger.debug(pformat(query))
         return Database().get_calls_group(
             date_from=query.get("from", None),
             date_to=query.get("to", None),
@@ -388,7 +388,7 @@ class UnknownUDP(Resource):
         location="query",
     )
     def get(self, query):
-        logger.debug(pformat(query))
+        #  logger.debug(pformat(query))
         return Database().get_unknown_udp(
             date_from=query.get("from", None),
             date_to=query.get("to", None),
@@ -405,7 +405,7 @@ class UnknownAPI(Resource):
         location="query",
     )
     def get(self, query):
-        logger.debug(pformat(query))
+        #  logger.debug(pformat(query))
         return Database().get_unknown_api(
             date_from=query.get("from", None),
             date_to=query.get("to", None),

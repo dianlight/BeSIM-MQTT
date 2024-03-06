@@ -1,6 +1,8 @@
 #
 # This is where we store the status of any connected peers/devices
 #
+import logging
+from pprint import pformat
 from uuid import uuid4
 
 
@@ -9,6 +11,14 @@ Status = {"peers": {}, "devices": {}, "token": str(uuid4())}
 
 def getStatus():
     return Status
+
+
+def getPeerFromDeviceId(deviceId):
+    value = dict(
+        filter(lambda pair: deviceId in pair[1]["devices"], Status["peers"].items())
+    ).keys()
+    logging.debug(pformat((Status, value, len(value))))
+    return next(iter(value)) if len(value) > 0 else None
 
 
 def getPeerStatus(addr):

@@ -46,7 +46,7 @@ def timing(f):
             raise e
         finally:
             time2: float = time.time()
-            logging.info(pformat((args, kwargs, ret)))
+            # logging.info(pformat((args, kwargs, ret)))
             logging.debug(
                 "{:s} function took {:.3f} ms".format(
                     args[1]["RAW_URI"], (time2 - time1) * 1000.0
