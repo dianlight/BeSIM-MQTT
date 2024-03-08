@@ -22,9 +22,9 @@ def getPeerFromDeviceId(deviceId):
     value = dict(
         filter(lambda pair: deviceId in pair[1]["devices"], Status["peers"].items())
     ).keys()
-    logging.info(
-        pformat((Status, value, len(value), list(value)[0] if len(value) > 0 else None))
-    )
+    # logging.debug(
+    #    pformat((Status, value, len(value), list(value)[0] if len(value) > 0 else None))
+    # )
     return list(value)[0] if len(value) > 0 else None
 
 

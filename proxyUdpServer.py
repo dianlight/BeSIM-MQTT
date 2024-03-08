@@ -152,7 +152,14 @@ class ProxyUdpServer(UdpServer):
                 data,
                 payload,
             )
-            unpack.setOffset(msgLen)  # To skip false inernal error          
+            try:
+                cseq, unk1, unk2, deviceid = unpack("<BBHI")  # 1 1 2 4
+                logging.info(
+                    f"Uknown Cloud {MsgId(wrapper.msgType).name=} {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=}"
+                )
+            except Exception as e:
+                logging.warning(e)
+            unpack.setOffset(msgLen)  # To skip false inernal error
             forward = True
 
         if unpack.getOffset() != msgLen:
@@ -169,9 +176,12 @@ class ProxyUdpServer(UdpServer):
                 unpack.subbuf(msgLen - unpack.getOffset()),
             )
 
-        if forward and (paddr := getPeerFromDeviceId(deviceid)) is not None:
-            #logging.info(pformat(paddr))
-            self.send_ENCODED_FRAME(paddr, payload, response=wrapper.response, write=wrapper.write)  # type: ignore
+        try:
+            if 'deviceid' in locals() and forward and (paddr := getPeerFromDeviceId(deviceid)) is not None:
+                # logging.info(pformat(paddr))
+                self.send_ENCODED_FRAME(paddr, payload, response=wrapper.response, write=wrapper.write)  # type: ignore
+        except Exception as e:
+            logging.debug(e)
 
         return MsgId(wrapper.msgType).name
 
