@@ -1,8 +1,8 @@
 #
 # This is where we store the status of any connected peers/devices
 #
-import logging
-from pprint import pformat
+# import logging
+# from pprint import pformat
 from uuid import uuid4
 
 
@@ -38,7 +38,8 @@ def getDeviceStatus(deviceid):
     if deviceid not in Status["devices"]:
         # cseq is control plane sequence number, 0..0xfd
         # results is a dict holding the results from a request
-        # 'results' = { <sequence number of request sent> : { 'ev' : <threading.Event>, 'val' : <result of requested operation> }, ... }
+        # 'results' = { <sequence number of request sent> : { 'ev' : <threading.Event>,
+        # 'val' : <result of requested operation> }, ... }
         Status["devices"][deviceid] = {"rooms": {}, "cseq": 0x0, "results": {}}
     return Status["devices"][deviceid]
 

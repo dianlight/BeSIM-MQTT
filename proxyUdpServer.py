@@ -1,12 +1,13 @@
 import logging
-from pprint import pformat
+
+# from pprint import pformat
 
 # from pprint import pformat
 import hexdump
 import dns.resolver
-from status import getPeerFromDeviceId, getRoomStatus, getDeviceStatus
+from status import getPeerFromDeviceId, getRoomStatus  # , getDeviceStatus
 from udpserver import (
-    UNUSED_CSEQ,
+    # UNUSED_CSEQ,
     Frame,
     MsgId,
     UdpServer,
@@ -77,7 +78,7 @@ class ProxyUdpServer(UdpServer):
             forward = True
         elif wrapper.msgType == MsgId.DEVICE_TIME and msgLen == 16:
             #  """PAYLOAD: 15000000AAF28D23"""
-            cseq, unk1, unk2, deviceid, unk3, unk4 = unpack("<BBHIII") # 1 1 2 4 4 4
+            cseq, unk1, unk2, deviceid, unk3, unk4 = unpack("<BBHIII")  # 1 1 2 4 4 4
             logging.info(
                 f"Cloud {MsgId(wrapper.msgType).name=} {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=} {unk3=:x} {unk4=:x}"
             )
@@ -100,7 +101,7 @@ class ProxyUdpServer(UdpServer):
             #     """ PAYLOAD: 14000000AAF28D23  """ REFRESH
             #     """ PAYLOAD: 18000000AAF28D23  """ SWVERSION
             #     """ PAYLOAD: FF000000AAF28D2330363534393138303131313032 """ SWVERSION?
-            cseq, unk1, unk2, deviceid = unpack("<BBHI") # 1 1 2 4
+            cseq, unk1, unk2, deviceid = unpack("<BBHI")  # 1 1 2 4
             logging.info(
                 f"Cloud {MsgId(wrapper.msgType).name=} {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=}"
             )
@@ -133,7 +134,7 @@ class ProxyUdpServer(UdpServer):
             )
             forward = True
         elif wrapper.msgType == MsgId.PING and msgLen == 10:
-            cseq, unk1, unk2, deviceid, unk3 = unpack("<BBHIH") # 1 1 2 4 2
+            cseq, unk1, unk2, deviceid, unk3 = unpack("<BBHIH")  # 1 1 2 4 2
 
             logging.info(
                 f"Cloud {MsgId(wrapper.msgType).name=} {wrapper.msgType=:x} {cseq=:x} {unk1=:x} {unk2=:x} {deviceid=} {unk3=}"
@@ -177,7 +178,11 @@ class ProxyUdpServer(UdpServer):
             )
 
         try:
-            if 'deviceid' in locals() and forward and (paddr := getPeerFromDeviceId(deviceid)) is not None:
+            if (
+                "deviceid" in locals()
+                and forward
+                and (paddr := getPeerFromDeviceId(deviceid)) is not None
+            ):
                 # logging.info(pformat(paddr))
                 self.send_ENCODED_FRAME(paddr, payload, response=wrapper.response, write=wrapper.write)  # type: ignore
         except Exception as e:
@@ -199,7 +204,7 @@ class ProxyUdpServer(UdpServer):
                 return ret
             if not self.debugmode:
                 logging.debug(
-                    f"Cloud replicate message {len(data)} bytes : {hexdump.dump(data, sep="")} from {self.addr} to {self.cloud_addr}"
+                    f"Cloud replicate message {len(data)} bytes : {hexdump.dump(data, sep='')} from {self.addr} to {self.cloud_addr}"
                 )
                 self.sock.sendto(data, self.cloud_addr)
             ret = super().handleMsg(data, addr)

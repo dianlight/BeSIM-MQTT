@@ -1,8 +1,8 @@
-from pprint import pformat
-import queue
-import token
-from attr import field
-from flask import Flask, redirect, request, send_file
+# from pprint import pformat
+# import queue
+# import token
+# from attr import field
+from flask import Flask, request, send_file
 from flask_restful import Api, Resource
 from flask_cors import CORS
 import json
@@ -28,9 +28,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 class SetEncoder(json.JSONEncoder):
 
     def default(self, o):
-        if isinstance(o, set):
-            return list(o)
-        return json.JSONEncoder.default(self, o)
+        return list(o) if isinstance(o, set) else json.JSONEncoder.default(self, o)
 
 
 app = Flask(
@@ -74,17 +72,16 @@ def getWeather():
     headers = {"User-Agent": "BeSim/0.1 github.com/jimmyH/BeSIM"}
 
     r = requests.get(url, params=params, headers=headers)
-    if r.status_code == 200:
-        js = r.json()
-
-        temp = js["properties"]["timeseries"][0]["data"]["instant"]["details"][
-            "air_temperature"
-        ]
-        Database().log_outside_temperature(temp)
-
-        return js, 200
-    else:
+    if r.status_code != 200:
         return {}, r.status_code
+    js = r.json()
+
+    temp = js["properties"]["timeseries"][0]["data"]["instant"]["details"][
+        "air_temperature"
+    ]
+    Database().log_outside_temperature(temp)
+
+    return js, 200
 
 
 #
@@ -136,8 +133,9 @@ def getWebTemperature() -> str:
 )
 def postBoilerRecords():
     logger.debug(f"{request.args}")
-    data = request.json
+    # data = request.json
     # @todo do something with the POSTed data
+    return "", 404
 
 
 #
@@ -183,13 +181,17 @@ class Device(Resource):
 
 
 class Rooms(Resource):
-    def get(self, deviceid):
-        rooms = []
-        # We only return rooms we have seen in the last 10 minutes
-        for k, v in getDeviceStatus(deviceid)["rooms"].items():
-            if "lastseen" in v and v["lastseen"] > time.time() - 600:
-                rooms.append(k)
-        return rooms
+    def get(self, deviceid):  # -> list[Any]:
+        logging.debug(
+            f"{k} LS:{v['lastseen']} NOW:{time.time()} DIFF:{ time.time() - v['lastseen']}"
+            for k, v in getDeviceStatus(deviceid)["rooms"].items()
+            if "lastseen" in v and v["lastseen"] > time.time() - 600
+        )
+        return [
+            k
+            for k, v in getDeviceStatus(deviceid)["rooms"].items()
+            if "lastseen" in v and v["lastseen"] > time.time() - 600
+        ]
 
 
 class Room(Resource):
@@ -657,12 +659,11 @@ class TestResource(Resource):
         location="query",
     )
     def get(self, deviceid, roomid, msgId=None, numBytes=None):
-        if msgId is not None:
-            msgId = int(msgId, 0)
-            print(f"Setting id={id}")
-        else:
+        if msgId is None:
             return None
 
+        msgId = int(msgId, 0)
+        print(f"Setting id={id}")
         if numBytes is not None:
             print(f"Setting numBytes={numBytes}")
 
@@ -682,7 +683,8 @@ class TestResource(Resource):
         )
 
 
-# api.add_resource(TestResource,'/api/v1.0/devices/<int:deviceid>/rooms/<int:roomid>/test', endpoint = 'test', host="api.besmart-home.com")
+# api.add_resource(TestResource,'/api/v1.0/devices/<int:deviceid>/rooms/<int:roomid>/test',
+# endpoint = 'test', host="api.besmart-home.com")
 
 
 # if __name__ == "__main__":
