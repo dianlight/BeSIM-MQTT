@@ -90,7 +90,8 @@ class MsgId(IntEnum):
     SET_T1 = 0x0D
 
     # 0x0e    Unknown (from test probe: deviceid, roomid) (invalid)
-    # 0x0f    Unknown (from test probe: deviceid, long message with lots of 0x0 followed by lots of 0xff) Could this be OpenTherm parameters?
+    # 0x0f    Unknown (from test probe: deviceid, long message with lots of 0x0
+    #   followed by lots of 0xff) Could this be OpenTherm parameters?
     # 0x10    Unknown (from test probe: deviceid) (invalid)
     # 0x11    Unknown (from test probe: deviceid,byte=0xff)
 
@@ -256,9 +257,7 @@ def NextCSeq(device, wait=0):
 
 def LastCSeq(device):
     cseq = device["cseq"]
-    if cseq == MAX_CSEQ:
-        return 0
-    return cseq - 1
+    return 0 if cseq == MAX_CSEQ else cseq - 1
 
 
 def WaitCSeq(device, cseq):
@@ -395,6 +394,7 @@ class Wrapper:
 
     def encodeDL(self, msgType, response, write):
         if self.payload is None:
+            # sourcery skip: raise-specific-error
             raise Exception("No Payload to encode!")
         self.msgType = msgType
         self.downlink = 1
@@ -709,30 +709,29 @@ class UdpServer(threading.Thread):
                         write=1,
                         wait=1,
                     )
-                    if rc == 3:
-                        roomStatus["fakeboost"] = time.time() + FAKEBOOST_DURATION
-                        return 1
-                    else:
+                    if rc != 3:
                         return 0
+                    roomStatus["fakeboost"] = time.time() + FAKEBOOST_DURATION
+                    return 1
         return 0
 
     def set_messages_payload_size(self, msgType):
-        if (
-            msgType == MsgId.SET_T3
-            or msgType == MsgId.SET_T2
-            or msgType == MsgId.SET_T1
-            or msgType == MsgId.SET_MIN_HEAT_SETP
-            or msgType == MsgId.SET_MAX_HEAT_SETP
-        ):
+        if msgType in [
+            MsgId.SET_T3,
+            MsgId.SET_T2,
+            MsgId.SET_T1,
+            MsgId.SET_MIN_HEAT_SETP,
+            MsgId.SET_MAX_HEAT_SETP,
+        ]:
             return 2
-        elif (
-            msgType == MsgId.SET_UNITS
-            or msgType == MsgId.SET_SEASON
-            or msgType == MsgId.SET_SENSOR_INFLUENCE
-            or msgType == MsgId.SET_CURVE
-            or msgType == MsgId.SET_ADVANCE
-            or msgType == MsgId.SET_MODE
-        ):
+        elif msgType in [
+            MsgId.SET_UNITS,
+            MsgId.SET_SEASON,
+            MsgId.SET_SENSOR_INFLUENCE,
+            MsgId.SET_CURVE,
+            MsgId.SET_ADVANCE,
+            MsgId.SET_MODE,
+        ]:
             return 1
         else:
             return None
@@ -740,9 +739,11 @@ class UdpServer(threading.Thread):
     def handleMsg(self, data, addr) -> str:
 
         frame = Frame()
-        payload = frame.decode(data)
+        payload: bytes | None = frame.decode(data)
+        if payload is None:
+            return ""
         seq = frame.seq
-        length = len(payload)
+        length: int = len(payload)
 
         peerStatus = getPeerStatus(addr)
         peerStatus["seq"] = seq  # @todo handle sequence number
@@ -761,15 +762,12 @@ class UdpServer(threading.Thread):
             cseq, unk1, unk2, deviceid = unpack("<BBHI")
             logger.info(f"{cseq=:x} {unk1=:x} {unk2=:x} {deviceid=}")
 
-            deviceStatus = getDeviceStatus(deviceid)
-            peerStatus["devices"].add(deviceid)
-            deviceStatus["addr"] = addr
-
+            deviceStatus = self._extracted_from_handleMsg_27(deviceid, peerStatus, addr)
             rooms_to_get_prog = (
                 set()
             )  # Set of rooms for which we need to get the current program
 
-            for n in range(8):  # Supports up to 8 thermostats
+            for _ in range(8):
                 room, byte1, byte2, temp, settemp, t3, t2, t1, maxsetp, minsetp = (
                     unpack("<IBBhhhhhhh")
                 )
@@ -787,7 +785,7 @@ class UdpServer(threading.Thread):
                 # Assume that if room is zero, 0xffffffff or byte1 is zero, then no thermostat is connected for that room
                 if room != 0 and room != 0xFFFFFFFF and byte1 != 0:
                     logger.info(
-                        f"{room=:x} {byte1=:x} {mode=} {temp=} {settemp=} {t3=} {t2=} {t1=} {maxsetp=} {minsetp=} {sensorinfluence=} {units=} {advance=} {boost=} {cmdissued=} {winter=} {tempcurve=} {heatingsetp=}"
+                        f"{room=:x} {byte1=:x} {mode=} {unk9=} {temp=} {settemp=} {t3=} {t2=} {t1=} {maxsetp=} {minsetp=} {sensorinfluence=} {units=} {advance=} {boost=} {cmdissued=} {winter=} {tempcurve=} {heatingsetp=}"
                     )
                     if byte1 == 0x8F:
                         heating = 1
@@ -816,7 +814,6 @@ class UdpServer(threading.Thread):
                     roomStatus["boost"] = boost
                     roomStatus["cmdissued"] = cmdissued
                     roomStatus["winter"] = winter
-
                     roomStatus["lastseen"] = int(time.time())
 
                     if self.db is not None:
@@ -889,15 +886,6 @@ class UdpServer(threading.Thread):
             # Send a DL STATUS message
             self.send_STATUS(addr, deviceid, deviceStatus["lastseen"], response=1)
 
-            if wrapper.cloudsynclost:
-                # time.sleep(1) # embedded device may not handle lots of messages in a short time
-                # self.send_SWVERSION(addr,deviceStatus,deviceid,response=0)
-                # time.sleep(1) # embedded device may not handle lots of messages in a short time
-                # self.send_REFRESH(addr,deviceStatus,deviceid,response=0)
-                # time.sleep(1) # embedded device may not handle lots of messages in a short time
-                # self.send_DEVICE_TIME(addr,deviceStatus,deviceid,response=0)
-                pass
-
             # Fetch updated program for any rooms in rooms_to_get_prog set
             for room in rooms_to_get_prog:
                 time.sleep(
@@ -910,10 +898,7 @@ class UdpServer(threading.Thread):
 
             logger.info(f"{deviceid=} {room=}")
 
-            deviceStatus = getDeviceStatus(deviceid)
-            peerStatus["devices"].add(deviceid)
-            deviceStatus["addr"] = addr
-
+            deviceStatus = self._extracted_from_handleMsg_27(deviceid, peerStatus, addr)
             if cseq != LastCSeq(deviceStatus):
                 logger.warn(f"Unexpected {cseq=:x}")
 
@@ -936,10 +921,7 @@ class UdpServer(threading.Thread):
 
             logger.info(f"{deviceid=}")
 
-            deviceStatus = getDeviceStatus(deviceid)
-            peerStatus["devices"].add(deviceid)
-            deviceStatus["addr"] = addr
-
+            deviceStatus = self._extracted_from_handleMsg_27(deviceid, peerStatus, addr)
             if cseq != UNUSED_CSEQ:
                 logger.warn(f"Unexpected {cseq=}")
 
@@ -947,7 +929,7 @@ class UdpServer(threading.Thread):
                 logger.warn(f"Unexpected {unk1=:x}")
 
             # on uplink unk2 is usually 4, but can be zero (when out of sync?)
-            if unk2 != 4 and unk2 != 0:
+            if unk2 not in [4, 0]:
                 logger.warn(f"Unexpected {unk2=:x}")
 
             if unk3 != 1:
@@ -961,10 +943,7 @@ class UdpServer(threading.Thread):
             # Padding at end ??
             logger.info(f"{deviceid=}")
 
-            deviceStatus = getDeviceStatus(deviceid)
-            peerStatus["devices"].add(deviceid)
-            deviceStatus["addr"] = addr
-
+            deviceStatus = self._extracted_from_handleMsg_27(deviceid, peerStatus, addr)
             if cseq != LastCSeq(deviceStatus):
                 logger.warn(f"Unexpected {cseq}")
 
@@ -986,10 +965,7 @@ class UdpServer(threading.Thread):
             cseq, unk1, unk2, deviceid, val, unk3, unk4, unk5 = unpack("<BBHIBBHI")
             logger.info(f"{deviceid=} {val=}")
 
-            deviceStatus = getDeviceStatus(deviceid)
-            peerStatus["devices"].add(deviceid)
-            deviceStatus["addr"] = addr
-
+            deviceStatus = self._extracted_from_handleMsg_27(deviceid, peerStatus, addr)
             if cseq != LastCSeq(deviceStatus):
                 logger.warn(f"Unexpected {cseq=}")
 
@@ -1016,10 +992,7 @@ class UdpServer(threading.Thread):
 
             logger.info(f"{deviceid=} {val=}")
 
-            deviceStatus = getDeviceStatus(deviceid)
-            peerStatus["devices"].add(deviceid)
-            deviceStatus["addr"] = addr
-
+            deviceStatus = self._extracted_from_handleMsg_27(deviceid, peerStatus, addr)
             if cseq != LastCSeq(deviceStatus):
                 logger.warn(f"Unexpected {cseq=}")
 
@@ -1040,10 +1013,7 @@ class UdpServer(threading.Thread):
             cseq, unk1, unk2, deviceid, room, unk3 = unpack("<BBHIIH")
             logger.info(f"{deviceid=} {room=} {unk3=:x}")
 
-            deviceStatus = getDeviceStatus(deviceid)
-            peerStatus["devices"].add(deviceid)
-            deviceStatus["addr"] = addr
-
+            deviceStatus = self._extracted_from_handleMsg_27(deviceid, peerStatus, addr)
             if cseq != UNUSED_CSEQ:
                 logger.warn(f"Unexpected {cseq=}")
 
@@ -1063,10 +1033,7 @@ class UdpServer(threading.Thread):
         elif wrapper.msgType == MsgId.SWVERSION:
             cseq, unk1, unk2, deviceid, version = unpack("<BBHI13s")
             logger.info(f"{deviceid=} {version=}")
-            deviceStatus = getDeviceStatus(deviceid)
-            peerStatus["devices"].add(deviceid)
-            deviceStatus["addr"] = addr
-
+            deviceStatus = self._extracted_from_handleMsg_27(deviceid, peerStatus, addr)
             deviceStatus["version"] = str(version)
 
             if cseq != LastCSeq(deviceStatus):
@@ -1086,15 +1053,12 @@ class UdpServer(threading.Thread):
         elif wrapper.msgType == MsgId.PROGRAM:
             cseq, unk1, unk2, deviceid, room, day = unpack("<BBHIIH")
             prog = []
-            for i in range(24):
+            for _ in range(24):
                 (p,) = unpack("<B")
                 prog.append(p)
             logger.info(f"{deviceid=} {room=} {day=} prog={ [ hex(l) for l in prog ] }")
 
-            deviceStatus = getDeviceStatus(deviceid)
-            peerStatus["devices"].add(deviceid)
-            deviceStatus["addr"] = addr
-
+            deviceStatus = self._extracted_from_handleMsg_27(deviceid, peerStatus, addr)
             roomStatus = getRoomStatus(deviceid, room)
             roomStatus["days"][day] = prog
             logger.info(getStatus())
@@ -1131,10 +1095,7 @@ class UdpServer(threading.Thread):
                 logger.warn(f"Unrecognised MsgType {wrapper.msgType:x}")
                 value = None
 
-            deviceStatus = getDeviceStatus(deviceid)
-            peerStatus["devices"].add(deviceid)
-            deviceStatus["addr"] = addr
-
+            deviceStatus = self._extracted_from_handleMsg_27(deviceid, peerStatus, addr)
             roomStatus = getRoomStatus(deviceid, room)
 
             logger.info(f"{cseq=} {deviceid=} {room=} {value=}")
@@ -1169,14 +1130,20 @@ class UdpServer(threading.Thread):
             if wrapper.downlink and flags != 0x0:
                 logger.warn(f"Unexpected {flags=:x} for downlink")
 
-            if not wrapper.downlink and (flags != 0x0 and flags != 0x2):
+            if not wrapper.downlink and flags not in [0x0, 0x2]:
                 logger.warn(f"Unexpected {flags=:x} for uplink")
 
             # Send a DL SET message if this was initiated by the device
             if value is not None:
                 if wrapper.response != 1:
                     self.send_SET(
-                        addr, device, deviceid, room, wrapper.msgType, value, response=1
+                        addr,
+                        deviceStatus,
+                        deviceid,
+                        room,
+                        wrapper.msgType,
+                        value,
+                        response=1,
                     )
                 else:
                     SignalCSeq(deviceStatus, cseq, value)
@@ -1189,6 +1156,14 @@ class UdpServer(threading.Thread):
             logger.warn(f"Internal error offset={unpack.getOffset()} {msgLen=}")
 
         return MsgId(wrapper.msgType).name
+
+    # TODO Rename this here and in `handleMsg`
+    def _extracted_from_handleMsg_27(self, deviceid, peerStatus, addr):
+        result = getDeviceStatus(deviceid)
+        peerStatus["devices"].add(deviceid)
+        result["addr"] = addr
+
+        return result
 
 
 # if __name__ == "__main__":
