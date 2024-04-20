@@ -1,6 +1,10 @@
+import binascii
 from enum import Enum
 from io import BytesIO
+import io
 import itertools
+import os
+import pickle
 from pprint import pformat
 import logging
 from wsgiref.types import StartResponse, WSGIEnvironment
@@ -10,6 +14,7 @@ from flask import Flask, Request, json
 import http.client
 import re
 import typing as t
+import hexdump
 
 from database import Database
 import time
@@ -82,7 +87,9 @@ class ProxyMiddleware(object):
     upstream_resolver = dns.resolver.Resolver()
     http_connection: dict[str, http.client.HTTPConnection] = {}
 
-    def __init__(self, app: Flask, upstream: str) -> None:
+    def __init__(
+        self, app: Flask, upstream: str, datalog: t.Optional[io.TextIOWrapper]
+    ) -> None:
         self._app = app.wsgi_app
         self.app: Flask = app
 
@@ -97,6 +104,7 @@ class ProxyMiddleware(object):
         )
         # for answer in self.upstream_resolver.query('google.com', "A"):
         #    logging.info(answer.to_text())
+        self.datalog: io.TextIOWrapper | None = datalog
 
     def check_path_exists(self, env: WSGIEnvironment) -> bool:
         path = env["PATH_INFO"]
@@ -119,6 +127,7 @@ class ProxyMiddleware(object):
     def __call__(
         self, env: WSGIEnvironment, resp: StartResponse
     ) -> t.Iterable[bytes]:  # sourcery skip: identity-comprehension
+
         http_host: str | None = env.get("HTTP_HOST")
         if http_host is None:
             raise ValueError("Internal server error. HTTP_HOST env is null!")
@@ -191,6 +200,11 @@ class ProxyMiddleware(object):
         env["wsgi.input"] = body
         proxy_body: bytes = body.read(length)
         body.seek(0)
+        
+        if self.datalog:
+            self.datalog.write(f'"I","{hexdump.dump(pickle.dumps(env), sep='')}","{hexdump.dump(proxy_body, sep='')}"\r\n')
+            self.datalog.flush()
+            os.fsync(self.datalog)
 
         if behaviour != BEHAVIOUR.ONLY_LOCAL:
             logging.debug(
@@ -225,10 +239,18 @@ class ProxyMiddleware(object):
         def intercept_response(
             status: str, headers, *args
         ):  # -> Callable[..., object]:
+            if self.datalog:
+                self.datalog.write(
+                    f'"O","{status}","{hexdump.dump(pickle.dumps(env), sep='')}","{hexdump.dump(pickle.dumps(headers), sep='')}","{hexdump.dump(body_org, sep='')}"\r\n'
+                )
+                self.datalog.flush()
+                os.fsync(self.datalog)
+
             env["RESPONSE_STATUS"] = status
             if behaviour in [BEHAVIOUR.REMOTE_FIRST, BEHAVIOUR.ONLY_REMOTE]:
                 headers = resp_org.headers.items()
                 status = str(resp_org.status)
+
                 if "MISSING_API" in env:
                     Database().log_unknown_api(
                         env["REMOTE_ADDR"],

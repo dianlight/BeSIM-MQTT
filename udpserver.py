@@ -1,4 +1,10 @@
-from typing import Any
+import binascii
+from functools import wraps
+import io
+import os
+import pickle
+from typing import Any, Optional
+from typing_extensions import Buffer
 from crccheck.crc import Crc16Xmodem
 from enum import IntEnum
 import time
@@ -437,11 +443,16 @@ class Wrapper:
 class UdpServer(threading.Thread):
     MAX_DATA = 4096
 
-    def __init__(self, addr):
+    def __init__(
+        self,
+        addr,
+        datalog: Optional[io.TextIOWrapper] = None,
+    ):
         threading.Thread.__init__(self)
         self.addr = addr
         self.stop = False
         self.db = Database()
+        self.datalog: io.TextIOWrapper | None = datalog
 
     def run(self):
         logger.info("UDP server is running")
@@ -449,6 +460,7 @@ class UdpServer(threading.Thread):
         self.sock = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.bind(self.addr)
+
         while not self.stop:
             data, addr = self.sock.recvfrom(self.MAX_DATA)
             logger.info(f"From {addr} {len(data)} bytes : {hexdump.dump(data)}")
@@ -457,6 +469,15 @@ class UdpServer(threading.Thread):
             except Exception:
                 logger.error(traceback.format_exc())
                 time.sleep(1)
+
+    def sendto(self, data, address) -> int:
+        if self.datalog is not None:
+            self.datalog.write(
+                f'"O","{address}","{hexdump.dump(data, sep='')}"\r\n'
+            )
+            self.datalog.flush()
+            os.fsync(self.datalog)
+        return self.sock.sendto(data, address)
 
     def send_PING(self, addr, deviceid, response=0):
         cseq = UNUSED_CSEQ
@@ -470,7 +491,7 @@ class UdpServer(threading.Thread):
         frame = Frame(payload=payload)
         buf = frame.encode()
         logger.info(f"To {addr} {len(buf)} bytes : {hexdump.dump(buf)}")
-        self.sock.sendto(buf, addr)
+        self.sendto(buf, addr)
 
     def send_GET_PROG(self, addr, device, deviceid, room, response=0, wait=0):
         cseq = NextCSeq(device, wait)
@@ -484,7 +505,7 @@ class UdpServer(threading.Thread):
         frame = Frame(payload=payload)
         buf = frame.encode()
         logger.info(f"To {addr} {len(buf)} bytes : {hexdump.dump(buf)}")
-        self.sock.sendto(buf, addr)
+        self.sendto(buf, addr)
         return WaitCSeq(device, cseq)
 
     def send_SWVERSION(self, addr, device, deviceid, response=0, wait=0):
@@ -498,7 +519,7 @@ class UdpServer(threading.Thread):
         frame = Frame(payload=payload)
         buf = frame.encode()
         logger.info(f"To {addr} {len(buf)} bytes : {hexdump.dump(buf)}")
-        self.sock.sendto(buf, addr)
+        self.sendto(buf, addr)
         return WaitCSeq(device, cseq)
 
     def send_PROGRAM(
@@ -516,7 +537,7 @@ class UdpServer(threading.Thread):
         frame = Frame(payload=payload)
         buf = frame.encode()
         logger.info(f"To {addr} {len(buf)} bytes : {hexdump.dump(buf)}")
-        self.sock.sendto(buf, addr)
+        self.sendto(buf, addr)
         return WaitCSeq(device, cseq)
 
     def send_STATUS(self, addr, deviceid, lastseen, response=0):
@@ -530,7 +551,7 @@ class UdpServer(threading.Thread):
         frame = Frame(payload=payload)
         buf = frame.encode()
         logger.info(f"To {addr} {len(buf)} bytes : {hexdump.dump(buf)}")
-        self.sock.sendto(buf, addr)
+        self.sendto(buf, addr)
 
     def send_SET(
         self,
@@ -572,7 +593,7 @@ class UdpServer(threading.Thread):
         frame = Frame(payload=payload)
         buf = frame.encode()
         logger.info(f"To {addr} {len(buf)} bytes : {hexdump.dump(buf)}")
-        self.sock.sendto(buf, addr)
+        self.sendto(buf, addr)
         return WaitCSeq(device, cseq)
 
     def send_REFRESH(self, addr, device, deviceid, response=0, wait=0):
@@ -586,7 +607,7 @@ class UdpServer(threading.Thread):
         frame = Frame(payload=payload)
         buf = frame.encode()
         logger.info(f"To {addr} {len(buf)} bytes : {hexdump.dump(buf)}")
-        self.sock.sendto(buf, addr)
+        self.sendto(buf, addr)
         return WaitCSeq(device, cseq)
 
     def send_OUTSIDE_TEMP(
@@ -603,7 +624,7 @@ class UdpServer(threading.Thread):
         frame = Frame(payload=payload)
         buf = frame.encode()
         logger.info(f"To {addr} {len(buf)} bytes : {hexdump.dump(buf)}")
-        self.sock.sendto(buf, addr)
+        self.sendto(buf, addr)
         return WaitCSeq(device, cseq)
 
     def send_DEVICE_TIME(
@@ -621,7 +642,7 @@ class UdpServer(threading.Thread):
         frame = Frame(payload=payload)
         buf = frame.encode()
         logger.info(f"To {addr} {len(buf)} bytes : {hexdump.dump(buf)}")
-        self.sock.sendto(buf, addr)
+        self.sendto(buf, addr)
         return WaitCSeq(device, cseq)
 
     def send_PROG_END(self, addr, deviceid, room, response=0):
@@ -636,7 +657,7 @@ class UdpServer(threading.Thread):
         frame = Frame(payload=payload)
         buf = frame.encode()
         logger.info(f"To {addr} {len(buf)} bytes : {hexdump.dump(buf)}")
-        self.sock.sendto(buf, addr)
+        self.sendto(buf, addr)
 
     def send_FAKE_BOOST(self, addr, device, deviceid, room, val):
         # I cannot see a way to control BOOST mode remotely. Instead we implement a fake boost mode
@@ -737,6 +758,12 @@ class UdpServer(threading.Thread):
             return None
 
     def handleMsg(self, data, addr) -> str:
+
+        logger.info(self.datalog)
+        if self.datalog is not None:
+            self.datalog.write(f'"I","{addr}","{hexdump.dump(data, sep='')}"\r\n')
+            self.datalog.flush()
+            os.fsync(self.datalog)
 
         frame = Frame()
         payload: bytes | None = frame.decode(data)

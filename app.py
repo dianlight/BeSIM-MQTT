@@ -1,19 +1,32 @@
 import argparse
-from ast import arg
 from fileinput import filename
+import io
 import logging
 from pprint import pformat
 from collections import Counter
 from typing import Any
 import coloredlogs
 import os
-import sys
 from proxyUdpServer import ProxyUdpServer
 
 from udpserver import UdpServer
 from restapi import app
 from database import Database
 from proxyMiddleware import ProxyMiddleware
+from urllib.parse import ParseResult, urlparse
+
+from ha_mqtt_discoverable.climate import (
+    Climate,
+    ClimateInfo,
+    ClimateSetting,
+)
+
+
+def mqtt_url(arg):  # -> Any | ParseResult:
+    url: ParseResult = urlparse(arg)
+    if all((url.scheme in ["mqtt", "mqtts"], url.netloc)):  # possibly other sections?
+        return url  # return url in case you need the parsed object
+    raise argparse.ArgumentTypeError("Invalid URL")
 
 
 if __name__ == "__main__":
@@ -85,6 +98,30 @@ if __name__ == "__main__":
         help="Start the Server with autoreaload feature",
     )
 
+    ap.add_argument(
+        "--mqtt-url",
+        required=False,
+        default=False,
+        type=mqtt_url,
+        help="MQTT server url in format mqtt(s)://[<user>:<passwors>@]<server>:<port>",
+    )
+
+    ap.add_argument(
+        "--datalog-udp-path",
+        required=False,
+        default=False,
+        type=str,
+        help="Dump file for all UDP comunication - only for develop",
+    )
+
+    ap.add_argument(
+        "--datalog-tcp-path",
+        required=False,
+        default=False,
+        type=str,
+        help="Dump file for all TCP comunication - only for develop",
+    )
+
     args: dict[str, Any] = vars(ap.parse_args())
 
     fmt = "[%(asctime)s %(filename)s->%(funcName)s():%(lineno)d] %(levelname)s: %(message)s"
@@ -122,7 +159,39 @@ if __name__ == "__main__":
     app.template_folder = args["template_dir"]
     app.static_folder = args["static_dir"]
 
+    # MQTT connection and config
+    if args["mqtt_url"]:
+        mqtt_params: ParseResult = args["mqtt_url"]
+        assert mqtt_params.hostname
+        mqtt_settings = ClimateSetting.MQTT(
+            host=mqtt_params.hostname,
+            port=mqtt_params.port,
+            username=mqtt_params.username,
+            password=mqtt_params.password,
+            use_tls=mqtt_params.scheme == "mqtts",
+        )
+        logging.debug(("MQTT Settings", pformat(mqtt_settings)))
+    """    
+    climate_info = ClimateInfo(
+        name=request.param["name"], temperature_unit="C", preset_modes=["eco", "boost"]
+    )
+    settings = ClimateSetting(
+        mqtt=mqtt_settings,
+        entity=climate_info,
+        manual_availability=request.param["manual_availability"],
+        capability=request.param["capability"],
+    )
+    """
     # logging.info(pformat(app.config), app.static_folder, app.template_folder)
+
+    # Datalog Files
+    if args["datalog_udp_path"] is not None:
+        datalog_udp: io.TextIOWrapper = open(args["datalog_udp_path"], "at")
+        # datalog_udp.write('"DIRECTION","ADDRESS","HEX_DATA_DUMP"\r\n')
+        # datalog_udp.flush()
+        # os.fsync(datalog_udp)
+    if args["datalog_tcp_path"] is not None:
+        datalog_tcp: io.TextIOWrapper = open(args["datalog_tcp_path"], "at")
 
     if args["weather_location"] is not None:
         # logging.(pformat(args["weather_location"]))
@@ -133,10 +202,13 @@ if __name__ == "__main__":
     # udpServer = UdpServer(("", 6199))
     if args["proxy_mode"] is not None:
         udpServer = ProxyUdpServer(
-            ("", 6199), args["proxy_mode"], debugmode=args["devmode"]
+            ("", 6199),
+            args["proxy_mode"],
+            debugmode=args["devmode"],
+            datalog=datalog_udp,
         )
     else:
-        udpServer = UdpServer(("", 6199))
+        udpServer = UdpServer(("", 6199), datalog=datalog_udp)
     udpServer.start()
     app.config["udpServer"] = udpServer
     # app.config["SERVER_NAME"] = "api.besmart-home.com:80"
@@ -147,7 +219,11 @@ if __name__ == "__main__":
     debug = bool(os.getenv("FLASK_DEBUG", logging.DEBUG >= logging.root.level))
 
     if args["proxy_mode"] is not None:
-        app.wsgi_app = ProxyMiddleware(app, args["proxy_mode"])
+        app.wsgi_app = ProxyMiddleware(
+            app,
+            args["proxy_mode"],
+            datalog=datalog_tcp,
+        )
 
     # app.logger.setLevel(logging.WARN)
     logging.getLogger("werkzeug").setLevel(logging.WARN)

@@ -1,4 +1,8 @@
+import binascii
+import io
 import logging
+import os
+from typing import Optional
 
 # from pprint import pformat
 
@@ -22,8 +26,14 @@ class ProxyUdpServer(UdpServer):
 
     knocks = 0
 
-    def __init__(self, addr, upstream: str, debugmode=False):
-        super().__init__(addr)
+    def __init__(
+        self,
+        addr,
+        upstream: str,
+        debugmode=False,
+        datalog: Optional[io.TextIOWrapper] = None,
+    ):
+        super().__init__(addr, datalog=datalog)
         upstream_resolver = dns.resolver.Resolver()
         upstream_resolver.nameservers = [upstream]
         upstream_ip = next(
@@ -44,11 +54,15 @@ class ProxyUdpServer(UdpServer):
         frame = Frame(payload=payload)
         buf = frame.encode()
         logging.info(f"To {addr} {len(buf)} bytes : {hexdump.dump(buf)}")
-        self.sock.sendto(buf, addr)
+        self.sendto(buf, addr)
         return
 
     def handleCloudMsg(self, data: bytes, addr) -> str:
         # sourcery skip: extract-method, merge-comparisons
+        if self.datalog is not None:
+            self.datalog.write(f'"I","{addr}","{hexdump.dump(data, sep='')}"\r\n')
+            self.datalog.flush()
+            os.fsync(self.datalog)
 
         frame = Frame()
         epayload = frame.decode(data)
@@ -191,6 +205,7 @@ class ProxyUdpServer(UdpServer):
         return MsgId(wrapper.msgType).name
 
     def handleMsg(self, data, addr):
+
         if len(data) == 1 and data[0] == 0x58:
             self.knocks += 1
             return
@@ -206,7 +221,7 @@ class ProxyUdpServer(UdpServer):
                 logging.debug(
                     f"Cloud replicate message {len(data)} bytes : {hexdump.dump(data, sep='')} from {self.addr} to {self.cloud_addr}"
                 )
-                self.sock.sendto(data, self.cloud_addr)
+                self.sendto(data, self.cloud_addr)
             ret = super().handleMsg(data, addr)
             return ret
         except Exception as e:
