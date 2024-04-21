@@ -60,7 +60,7 @@ class ProxyUdpServer(UdpServer):
     def handleCloudMsg(self, data: bytes, addr) -> str:
         # sourcery skip: extract-method, merge-comparisons
         if self.datalog is not None:
-            self.datalog.write(f'"I","{addr}","{hexdump.dump(data, sep='')}"\r\n')
+            self.datalog.write(f'"C","{addr}","{hexdump.dump(data, sep='')}"\r\n')
             self.datalog.flush()
             os.fsync(self.datalog)
 

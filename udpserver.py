@@ -759,7 +759,7 @@ class UdpServer(threading.Thread):
 
     def handleMsg(self, data, addr) -> str:
 
-        logger.info(self.datalog)
+       
         if self.datalog is not None:
             self.datalog.write(f'"I","{addr}","{hexdump.dump(data, sep='')}"\r\n')
             self.datalog.flush()
